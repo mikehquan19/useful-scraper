@@ -115,12 +115,11 @@ func main() {
 			// Start from index 2 because index 1 only tells num of days listed on Redfin
 			tag := fmt.Sprintf(".keyDetails-row:nth-of-type(%s) .valueText", strconv.Itoa(j+1))
 			actions = append(actions, chromedp.Text(
-				tag, &infoValues[j],
+				tag,
+				&infoValues[j],
 				chromedp.ByQuery,
 			))
 		}
-
-		fmt.Printf("Run for %v ...\n", i+1)
 		err = chromedp.Run(ctx, actions...)
 		if err != nil {
 			log.Fatal("Error: ", err)
@@ -132,7 +131,8 @@ func main() {
 		homeInfoList[i].PricePerUnit = strToFloat32(strings.Join(strings.Split(infoValues[4][1:], ","), ""))
 		homeInfoList[i].Parking = infoValues[5]
 
-		fmt.Printf("Proccessed last 5 fields of home %v!\n!", i+1)
+		fmt.Printf("Proccessed last 5 fields of home %v!\n", i+1)
+
 	}
 
 	writeToFile(homeInfoList, "redfin_house")
