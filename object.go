@@ -1,7 +1,12 @@
 package main
 
+import (
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
 // Home info data to be uploaded to the Mongo database
 type RedfinHomeInfo struct {
+	Id           primitive.ObjectID
 	Address      string
 	Description  string
 	Bedrooms     float32

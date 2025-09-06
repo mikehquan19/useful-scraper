@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/chromedp/cdproto v0.0.0-20250803210736-d308e07a266d
 	github.com/chromedp/chromedp v0.14.1
+	go.mongodb.org/mongo-driver v1.17.4
 )
 
 require (
