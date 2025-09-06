@@ -6,12 +6,23 @@ type RedfinHomeInfo struct {
 	Description  string
 	Bedrooms     float32
 	Bathrooms    float32
-	Area         float32
+	HomeArea     Area
 	Price        float32
 	PropertyType string
-	YearBuilt    float32
+	YearBuilt    int32
 	PricePerUnit float32
-	LotSize      string
+	LotArea      Area
+	HOADues      float32
 	Parking      string
-	URL          string
+	Url          string
+}
+
+type Area struct {
+	Unit  string
+	Value float32
+}
+
+type Price struct {
+	Unit  string
+	Value float32
 }

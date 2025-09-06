@@ -4,17 +4,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // Convert string to float32
 func strToFloat32(str string) float32 {
 	var convertedValue float32
-	err := json.Unmarshal([]byte(str), &convertedValue)
+	cleanedStr := strings.ReplaceAll(str, ",", "")
+	err := json.Unmarshal([]byte(cleanedStr), &convertedValue)
 	if err != nil {
-		// If there's any problem with parsing, assuming it's zero
 		return 0
 	}
-	return convertedValue
+	return float32(convertedValue)
+}
+
+// Convert string to int32
+func strToInt32(str string) int32 {
+	cleanedStr := strings.ReplaceAll(str, ",", "")
+	convertedValue, err := strconv.ParseInt(cleanedStr, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return int32(convertedValue)
 }
 
 // Generate the headers for Redfin scraper
