@@ -88,7 +88,7 @@ func scrapeHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) 
 	var pageLinkNodes []*cdp.Node
 	_, err := chromedp.RunResponse(cdpCtx,
 		chromedp.Navigate(baseUrl+baseHref),
-		chromedp.QueryAfter(".PageNumber_page",
+		chromedp.QueryAfter(".PageNumbers__page",
 			func(ctx context.Context, _ runtime.ExecutionContextID, n ...*cdp.Node) error {
 				pageLinkNodes = n
 				return nil
