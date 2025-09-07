@@ -1,4 +1,4 @@
-module main
+module github.com/mikehquan19/useful-scraper
 
 go 1.24.0
 
