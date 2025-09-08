@@ -1,38 +1,51 @@
 package scrapeinternal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/chromedp"
 )
 
-// Convert string to float32
-func strToFloat32(str string) float32 {
-	var convertedValue float32
-	cleanedStr := strings.ReplaceAll(str, ",", "")
-	err := json.Unmarshal([]byte(cleanedStr), &convertedValue)
+// Generate the chromedp context with strong header to scrape sites using cloudfont
+// or other anti-bot algorithms
+func getChromedpContext(getHeaderFunc func() map[string]interface{}) (context.Context, context.CancelFunc) {
+	// By default, the context are headful
+	allocOptions := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", false),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+	)
+	chromedpCtx, _ := chromedp.NewExecAllocator(context.Background(), allocOptions...)
+	chromedpCtx, cancel := chromedp.NewContext(chromedpCtx)
+
+	// Set the strong header so that they will bypass cloudfont 403 of website
+	err := chromedp.Run(chromedpCtx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Enable the network domain
+			if enableErr := network.Enable().Do(ctx); enableErr != nil {
+				return enableErr
+			}
+
+			headers := network.Headers(getHeaderFunc())
+			return network.SetExtraHTTPHeaders(headers).Do(ctx)
+		}),
+	)
 	if err != nil {
-		return 0
+		panic(err)
 	}
-	return float32(convertedValue)
+
+	return chromedpCtx, cancel
 }
 
-// Convert string to int32
-func strToInt32(str string) int32 {
-	cleanedStr := strings.ReplaceAll(str, ",", "")
-	convertedValue, err := strconv.ParseInt(cleanedStr, 10, 32)
-	if err != nil {
-		return 0
-	}
-	return int32(convertedValue)
-}
-
-// Generate the headers for Redfin scraper
+// Generate the custom header for Redfin scraper
 // TODO: Needs to be fixed a little bit
-func getRedfinHeader() map[string]any {
-	return map[string]any{
+func getRedfinHeader() map[string]interface{} {
+	return map[string]interface{}{
 		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
 		"Accept-Encoding":           "gzip, deflate, br",
 		"Accept-Language":           "en-US,en;q=0.9",
@@ -50,6 +63,11 @@ func getRedfinHeader() map[string]any {
 	}
 }
 
+// Generate the custom header for Carmax scraper
+func getCarmaxHeader() map[string]interface{} {
+	return getRedfinHeader()
+}
+
 // Write the list of objects to file
 func writeToFile[T any](objectList []T, fileName string) {
 	// Convert the list to the json
@@ -63,4 +81,27 @@ func writeToFile[T any](objectList []T, fileName string) {
 	if err != nil {
 		fmt.Println(err)
 	}
+}
+
+// Convert string to float32
+func strToFloat32(str string) float32 {
+	var convertedValue float32
+	cleanedStr := strings.ReplaceAll(str, ",", "")
+	err := json.Unmarshal([]byte(cleanedStr), &convertedValue)
+	if err != nil {
+		// Any problem with parsing string will just result in 0.
+		// Works for "-"
+		return 0
+	}
+	return float32(convertedValue)
+}
+
+// Convert string to int32
+func strToInt32(str string) int32 {
+	cleanedStr := strings.ReplaceAll(str, ",", "")
+	convertedValue, err := strconv.ParseInt(cleanedStr, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return int32(convertedValue)
 }
