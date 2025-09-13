@@ -8,13 +8,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
 
 // Generate the chromedp context with strong header to scrape sites using cloudfont
 // or other anti-bot algorithms
-func getChromedpContext(getHeaderFunc func() map[string]interface{}) (context.Context, context.CancelFunc) {
+func getChromedpContext(getHeaderFunc func() map[string]any) (context.Context, context.CancelFunc) {
 	// By default, the context are headful
 	allocOptions := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false),
@@ -42,10 +43,19 @@ func getChromedpContext(getHeaderFunc func() map[string]interface{}) (context.Co
 	return chromedpCtx, cancel
 }
 
+// Check if there's an element visible on the page
+func elementExists(ctx context.Context, sel string) bool {
+	var nodes []*cdp.Node
+	err := chromedp.Nodes(sel, &nodes, chromedp.AtLeast(0)).Do(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return len(nodes) > 0
+}
+
 // Generate the custom header for Redfin scraper
-// TODO: Needs to be fixed a little bit
-func getRedfinHeader() map[string]interface{} {
-	return map[string]interface{}{
+func getHeader() map[string]any {
+	return map[string]any{
 		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
 		"Accept-Encoding":           "gzip, deflate, br",
 		"Accept-Language":           "en-US,en;q=0.9",
@@ -61,11 +71,6 @@ func getRedfinHeader() map[string]interface{} {
 		"Upgrade-Insecure-Requests": "1",
 		"User-Agent":                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
 	}
-}
-
-// Generate the custom header for Carmax scraper
-func getCarmaxHeader() map[string]interface{} {
-	return getRedfinHeader()
 }
 
 // Write the list of objects to file

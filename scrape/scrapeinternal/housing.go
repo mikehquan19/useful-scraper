@@ -19,6 +19,180 @@ import (
 
 const baseUrl = "https://www.redfin.com"
 
+// Get the list of links to the each home
+func scrapeHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
+	var homeLinks []string
+	fmt.Println("Scraping home links...")
+
+	// Get the all the page links
+	var pageLinkNodes []*cdp.Node
+	_, err := chromedp.RunResponse(cdpCtx,
+		chromedp.Navigate(baseUrl+baseHref),
+		chromedp.Nodes(".PageNumbers__page", &pageLinkNodes, chromedp.ByQueryAll),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Navigate to each page and get all the home links
+	for _, pageLinkNode := range pageLinkNodes {
+		pageHref, hrefExists := pageLinkNode.Attribute("href")
+		if !hrefExists {
+			return nil, errors.New("can't have access to the href of the page")
+		}
+
+		_, err = chromedp.RunResponse(cdpCtx,
+			chromedp.Sleep(1000*time.Millisecond),
+			chromedp.Navigate(baseUrl+pageHref),
+			chromedp.Sleep(1500*time.Millisecond),
+			chromedp.QueryAfter(".bp-InteractiveHomecard",
+				func(
+					ctx context.Context, _ runtime.ExecutionContextID, nodes ...*cdp.Node,
+				) error {
+					for _, homeLinkNode := range nodes {
+						homeHref, exists := homeLinkNode.Attribute("href")
+						if !exists {
+							return errors.New("can't have access to the href to home")
+						}
+						homeLinks = append(homeLinks, baseUrl+homeHref)
+					}
+					return nil
+				},
+			),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	fmt.Printf("Sucessfully scaped %d homes", len(homeLinks))
+	return homeLinks, nil
+}
+
+// Scrape the number of bedrooms and bathrooms
+func scrapeRooms(cdpCtx context.Context) (float32, float32, error) {
+	// By default, let's assume the house or land doesn't have any rooms
+	bedRooms, bathRooms := "0", "0"
+
+	err := chromedp.Run(cdpCtx,
+		chromedp.Text(".beds-section .statsValue", &bedRooms),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			if elementExists(cdpCtx, ".baths-section .bath-flyout") {
+				var bathText string
+				err := chromedp.Text(".baths-section .bath-flyout", &bathText).Do(ctx)
+				if err != nil {
+					return err
+				}
+				bathRooms = strings.Split(bathText, " ")[0]
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+	return strToFloat32(bedRooms), strToFloat32(bathRooms), nil
+}
+
+// Scrape the home area
+func scrapeHomeArea(cdpCtx context.Context) (object.Area, error) {
+	var homeArea object.Area
+	err := chromedp.Run(cdpCtx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			var unit, value string
+			// Extract unit and value separately and combine them
+			err := chromedp.Text(".sqft-section .statsValue", &value).Do(ctx)
+			if err != nil {
+				return err
+			}
+			err = chromedp.Text(".sqft-section .statsLabel", &unit).Do(ctx)
+			if err != nil {
+				return err
+			}
+			homeArea = object.Area{Unit: unit, Value: strToFloat32(value)}
+			return nil
+		}),
+	)
+	if err != nil {
+		return object.Area{}, err
+	}
+	return homeArea, nil
+}
+
+// Scrape the address and description
+func scrapeAddressAndDescription(cdpCtx context.Context) (string, string, error) {
+	var address, description string
+	err := chromedp.Run(cdpCtx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			if elementExists(cdpCtx, ".street-address") {
+				// The more common way of scraping address from the website
+				var street, city string
+				err := chromedp.Text(".street-address", &street).Do(ctx)
+				if err != nil {
+					return err
+				}
+				err = chromedp.Text(".bp-cityStateZip", &city).Do(ctx)
+				if err != nil {
+					return err
+				}
+				// Combine both parts of the address
+				address = fmt.Sprintf("%s %s", street, city)
+			} else {
+				// Some houses have only one tag showing an entire address
+				err := chromedp.Text(".streetAddress", &address).Do(ctx)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}),
+		chromedp.Text(".sectionContent p", &description),
+	)
+	if err != nil {
+		return "", "", err
+	}
+	return address, description, nil
+}
+
+// Scrape the extra information
+func scrapeDetails(cdpCtx context.Context) (map[string]string, error) {
+	homeDetailMap := make(map[string]string)
+
+	var fieldNodes []*cdp.Node
+	err := chromedp.Run(cdpCtx,
+		chromedp.Nodes(".keyDetails-row", &fieldNodes, chromedp.ByQueryAll),
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = chromedp.Run(cdpCtx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Going through each field as the tag
+			for i := 0; i < len(fieldNodes)-1; i++ {
+				var key, value string
+				fieldTag := fmt.Sprintf(".keyDetails-row:nth-child(%d)", i+2)
+				err := chromedp.Text(fieldTag+" .valueType", &key).Do(ctx)
+				if err != nil {
+					return err
+				}
+				err = chromedp.Text(fieldTag+" .valueText", &value).Do(ctx)
+				if err != nil {
+					return err
+				}
+
+				homeDetailMap[key] = value
+				// Parse the default value of HOA values and parking
+				parseHoaAndParking(homeDetailMap)
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return homeDetailMap, nil
+}
+
 // Convert area as string to Area struct
 func parseArea(rawArea string) object.Area {
 	if rawArea == "" {
@@ -80,202 +254,9 @@ func parsePricePerUnit(homeDetailMap map[string]string) float32 {
 	return pricePerUnit
 }
 
-// Get the list of links to the each home
-func scrapeHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
-	var homeLinks []string
-	fmt.Println("Scraping home links...")
-
-	// Get the all the page links
-	var pageLinkNodes []*cdp.Node
-	_, err := chromedp.RunResponse(cdpCtx,
-		chromedp.Navigate(baseUrl+baseHref),
-		chromedp.QueryAfter(".PageNumbers__page",
-			func(
-				tx context.Context, _ runtime.ExecutionContextID, nodes ...*cdp.Node,
-			) error {
-				pageLinkNodes = nodes
-				return nil
-			},
-		),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Navigate to each page and get all the home links
-	for _, pageLinkNode := range pageLinkNodes {
-		pageHref, hrefExists := pageLinkNode.Attribute("href")
-		if !hrefExists {
-			return nil, errors.New("can't have access to the href of the page")
-		}
-
-		_, err = chromedp.RunResponse(cdpCtx,
-			chromedp.Sleep(1000*time.Millisecond),
-			chromedp.Navigate(baseUrl+pageHref),
-			chromedp.Sleep(1500*time.Millisecond),
-			chromedp.QueryAfter(".bp-InteractiveHomecard",
-				func(
-					ctx context.Context, _ runtime.ExecutionContextID, nodes ...*cdp.Node,
-				) error {
-					for _, homeLinkNode := range nodes {
-						homeHref, exists := homeLinkNode.Attribute("href")
-						if !exists {
-							return errors.New("can't have access to the href to home")
-						}
-						homeLinks = append(homeLinks, baseUrl+homeHref)
-					}
-					return nil
-				},
-			),
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	fmt.Printf("Sucessfully scaped %d homes", len(homeLinks))
-	return homeLinks, nil
-}
-
-// Scrape the number of bedrooms and bathrooms
-func scrapeRooms(cdpCtx context.Context) (float32, float32, error) {
-	// By default, let's assume the house or land doesn't have any rooms
-	bedRooms, bathRooms := "0", "0"
-
-	err := chromedp.Run(cdpCtx,
-		chromedp.Text(".beds-section .statsValue", &bedRooms),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			var nodes []*cdp.Node
-			// Check if there's an element before extracting text
-			bathSel := ".baths-section .bath-flyout"
-			nodeErr := chromedp.Nodes(bathSel, &nodes, chromedp.AtLeast(0)).Do(ctx)
-			if nodeErr != nil {
-				return nodeErr
-			}
-			if len(nodes) > 0 {
-				var bathText string
-				scrapeErr := chromedp.Text(bathSel, &bathText).Do(ctx)
-				if scrapeErr != nil {
-					return scrapeErr
-				}
-				bathRooms = strings.Split(bathText, " ")[0]
-			}
-			return nil
-		}),
-	)
-	if err != nil {
-		return 0, 0, err
-	}
-	return strToFloat32(bedRooms), strToFloat32(bathRooms), nil
-}
-
-// Scrape the home area
-func scrapeHomeArea(cdpCtx context.Context) (object.Area, error) {
-	var homeArea object.Area
-	err := chromedp.Run(cdpCtx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			var unit, value string
-			// Extract unit and value separately and combine them
-			scrapeErr := chromedp.Text(".sqft-section .statsValue", &value).Do(ctx)
-			if scrapeErr != nil {
-				return scrapeErr
-			}
-			scrapeErr = chromedp.Text(".sqft-section .statsLabel", &unit).Do(ctx)
-			if scrapeErr != nil {
-				return scrapeErr
-			}
-			homeArea = object.Area{Unit: unit, Value: strToFloat32(value)}
-			return nil
-		}),
-	)
-	if err != nil {
-		return object.Area{}, err
-	}
-	return homeArea, nil
-}
-
-// Scrape the address and description
-func scrapeAddressAndDescription(cdpCtx context.Context) (string, string, error) {
-	var address, description string
-	err := chromedp.Run(cdpCtx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			var nodes []*cdp.Node
-			nodeErr := chromedp.Nodes(".street-address", &nodes, chromedp.AtLeast(0)).Do(ctx)
-			if nodeErr != nil {
-				return nodeErr
-			}
-			if len(nodes) > 0 {
-				// The more common way of scraping address from the website
-				var street, city string
-				scrapeErr := chromedp.Text(".street-address", &street).Do(ctx)
-				if scrapeErr != nil {
-					return scrapeErr
-				}
-				scrapeErr = chromedp.Text(".bp-cityStateZip", &city).Do(ctx)
-				if scrapeErr != nil {
-					return scrapeErr
-				}
-				// Combine both parts of the address
-				address = fmt.Sprintf("%s %s", street, city)
-			} else {
-				// Some houses have only one tag showing an entire address
-				scrapeErr := chromedp.Text(".streetAddress", &address).Do(ctx)
-				if scrapeErr != nil {
-					return scrapeErr
-				}
-			}
-			return nil
-		}),
-		chromedp.Text(".sectionContent p", &description),
-	)
-	if err != nil {
-		return "", "", err
-	}
-	return address, description, nil
-}
-
-// Scrape the extra information
-func scrapeDetails(cdpCtx context.Context) (map[string]string, error) {
-	homeDetailMap := make(map[string]string)
-
-	var fieldNodes []*cdp.Node
-	err := chromedp.Run(cdpCtx,
-		chromedp.Nodes(".keyDetails-row", &fieldNodes, chromedp.ByQueryAll),
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = chromedp.Run(cdpCtx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			// Going through each field as the tag
-			for i := 0; i < len(fieldNodes)-1; i++ {
-				var key, value string
-				fieldTag := fmt.Sprintf(".keyDetails-row:nth-child(%d)", i+2)
-				scrapeErr := chromedp.Text(fieldTag+" .valueType", &key).Do(ctx)
-				if scrapeErr != nil {
-					return scrapeErr
-				}
-				scrapeErr = chromedp.Text(fieldTag+" .valueText", &value).Do(ctx)
-				if scrapeErr != nil {
-					return scrapeErr
-				}
-
-				homeDetailMap[key] = value
-				// Parse the default value of HOA values and parking
-				parseHoaAndParking(homeDetailMap)
-			}
-			return nil
-		}),
-	)
-	if err != nil {
-		return nil, err
-	}
-	return homeDetailMap, nil
-}
-
 // Main function to scrape the housing info
 func ScrapeHousing(cityHref string, test bool) {
-	ctx, cancel := getChromedpContext(getRedfinHeader)
+	ctx, cancel := getChromedpContext(getHeader)
 	defer cancel()
 
 	var homeLinks []string
