@@ -18,7 +18,7 @@ func main() {
 	case "house":
 		scrapeinternal.ScrapeHousing(*houseCityHrefPtr, *testPtr)
 	case "car":
-		scrapeinternal.ScrapeCars(*carCityIdPtr)
+		scrapeinternal.ScrapeCars(*carCityIdPtr, *testPtr)
 	default:
 		fmt.Println("Other objects are currently not supported yet.")
 	}

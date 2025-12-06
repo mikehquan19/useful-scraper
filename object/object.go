@@ -31,3 +31,31 @@ type RedfinHomeInfo struct {
 	Parking      string
 	Url          string
 }
+
+type FuelEconomy struct {
+	CityMPG    float32
+	HighwayMPG float32
+}
+
+type Engine struct {
+	Cyclinders   int
+	FuelType     string
+	Displacement float32
+}
+
+type CarInfo struct {
+	Id             primitive.ObjectID
+	Make           string
+	Model          string
+	Year           int32
+	Color          string
+	Milage         float32
+	Price          float32
+	Engine         Engine
+	Tranmission    string
+	DriveType      string
+	MilesPerGallon FuelEconomy
+	Vin            int64
+	Features       []string
+	Url            string
+}
