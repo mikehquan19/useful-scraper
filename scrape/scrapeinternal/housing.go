@@ -20,27 +20,17 @@ import (
 const baseUrl string = "https://www.redfin.com"
 
 // Main function to scrape the housing info
-func ScrapeHousing(cityHref string, test bool) {
+func ScrapeHousing(cityHref string) {
 	ctx, cancel := getChromedpContext(getHeader)
 	defer cancel()
 
 	var homeLinks []string
 	var homeInfos []object.RedfinHomeInfo
 	var err error
-	if test {
-		// Scraping based on the test datas and not the other stuffs
-		homeLinks = []string{
-			"https://www.redfin.com/TX/Richardson/308-Lawndale-Dr-75080/home/31858127",
-			"https://www.redfin.com/TX/Richardson/1133-Pacific-Dr-75081/home/31951493",
-		}
-	} else {
-		// Example: "/city/30861/TX/Richardson"
-		homeLinks, err = getHomeLinks(ctx, cityHref)
-		if err != nil {
-			panic(err)
-		}
-	}
 
+	if homeLinks, err = getHomeLinks(ctx, cityHref); err != nil {
+		panic(err)
+	}
 	for _, homeLink := range homeLinks {
 		// Navigate to the page
 		_, err := chromedp.RunResponse(ctx,
@@ -57,7 +47,7 @@ func ScrapeHousing(cityHref string, test bool) {
 		if err != nil {
 			panic(err)
 		}
-		price := parsePrice(rawPrice)
+		price := convertPrice(rawPrice)
 
 		bedRooms, bathRooms := getRooms(ctx)
 		homeArea := getHomeArea(ctx)
@@ -74,22 +64,17 @@ func ScrapeHousing(cityHref string, test bool) {
 			Price:        price,
 			PropertyType: detailMap["Property Type"],
 			YearBuilt:    strToInt32(detailMap["Year Built"]),
-			PricePerUnit: parsePricePerUnit(detailMap),
-			LotArea:      parseArea(detailMap["Lot Size"]),
+			PricePerUnit: getPricePerUnit(detailMap),
+			LotArea:      convertArea(detailMap["Lot Size"]),
 			HOADues:      strToFloat32(detailMap["HOA Dues"]),
 			Parking:      detailMap["Parking"],
 			Url:          homeLink,
 		})
-		fmt.Println(homeLink)
 	}
 
-	if test {
-		writeToFile(homeInfos, "housing_test")
-	} else {
-		// Example: "/city/30861/TX/Richardson" -> Richardson
-		splittedHref := strings.Split(cityHref, "/")
-		writeToFile(homeInfos, fmt.Sprintf("housing_%s", splittedHref[len(splittedHref)-1]))
-	}
+	// Example: "/city/30861/TX/Richardson" -> Richardson
+	splittedHref := strings.Split(cityHref, "/")
+	writeToFile(homeInfos, fmt.Sprintf("housing_%s", splittedHref[len(splittedHref)-1]))
 }
 
 // getHomeLinks gets the list of links to the each home
@@ -136,7 +121,7 @@ func getHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
 		}
 	}
 
-	fmt.Printf("Sucessfully scaped %d homes", len(homeLinks))
+	fmt.Printf("Sucessfully scaped %d homes!", len(homeLinks))
 	return homeLinks, nil
 }
 
@@ -146,9 +131,7 @@ func getRooms(cdpCtx context.Context) (float32, float32) {
 	bedRooms, bathRooms := "0", "0"
 
 	// Get the bed rooms
-	err := chromedp.Run(cdpCtx,
-		chromedp.Text(".beds-section .statsValue", &bedRooms),
-	)
+	err := chromedp.Run(cdpCtx, chromedp.Text(".beds-section .statsValue", &bedRooms))
 	if err != nil {
 		panic(err)
 	}
@@ -171,11 +154,9 @@ func getHomeArea(cdpCtx context.Context) object.Area {
 	var homeArea object.Area
 	var err error
 
-	// Contains the unit and value respectively
-	var areaParts [2]string
+	var areaParts [2]string // Contains the unit and value respectively
 	for idx, areaTag := range [2]string{
-		".sqft-section .statsLabel",
-		".sqft-section .statsValue",
+		".sqft-section .statsLabel", ".sqft-section .statsValue",
 	} {
 		err = chromedp.Run(cdpCtx, chromedp.Text(areaTag, &areaParts[idx]))
 		if err != nil {
@@ -194,8 +175,7 @@ func getAddressAndDescription(cdpCtx context.Context) (string, string) {
 
 	// Get the address
 	if elementExists(cdpCtx, ".street-address") {
-		// Contains street and city
-		var addressParts [2]string
+		var addressParts [2]string // Contains street and city
 		for i, tag := range [2]string{".street-address", ".bp-cityStateZip"} {
 			err = chromedp.Run(cdpCtx, chromedp.Text(tag, &addressParts[i]))
 			if err != nil {
@@ -222,23 +202,18 @@ func getAddressAndDescription(cdpCtx context.Context) (string, string) {
 // Scrape the extra information
 func getDetails(cdpCtx context.Context) map[string]string {
 	homeDetailMap := make(map[string]string)
-	var err error
 
 	var nodes []*cdp.Node
-	err = chromedp.Run(cdpCtx,
-		chromedp.Nodes(".keyDetails-row", &nodes, chromedp.ByQueryAll),
-	)
+	err := chromedp.Run(cdpCtx, chromedp.Nodes(".keyDetails-row", &nodes, chromedp.ByQueryAll))
 	if err != nil {
 		panic(err)
 	}
-
 	for i := range len(nodes) {
-		// Contains both the key and info
-		var parts [2]string
+		var parts [2]string // Contains both the key and info
 		tag := fmt.Sprintf(".keyDetails-row:nth-child(%d)", i+2)
 
-		for j, tagType := range [2]string{" .valueType", " .valueText"} {
-			err = chromedp.Run(cdpCtx, chromedp.Text(tag+tagType, &parts[j]))
+		for j, addPart := range [2]string{" .valueType", " .valueText"} {
+			err = chromedp.Run(cdpCtx, chromedp.Text(tag+addPart, &parts[j]))
 			if err != nil {
 				panic(err)
 			}
@@ -247,13 +222,13 @@ func getDetails(cdpCtx context.Context) map[string]string {
 	}
 
 	// Convert HOA dues & parking field of the detail map
+	// Because sometimes they are not provided
 	hoaDues, exists := homeDetailMap["HOA Dues"]
 	if exists {
 		homeDetailMap["HOA Dues"] = regexp.MustCompile(`\d+`).FindString(hoaDues)
 	} else {
 		homeDetailMap["HOA Dues"] = "0"
 	}
-
 	_, exists = homeDetailMap["Parking"]
 	if !exists {
 		homeDetailMap["Parking"] = "Not provided"
@@ -261,8 +236,21 @@ func getDetails(cdpCtx context.Context) map[string]string {
 	return homeDetailMap
 }
 
+// Get the price per unit to make sure the unit is correct
+func getPricePerUnit(homeDetailMap map[string]string) float32 {
+	var pricePerUnit float32
+
+	_, exists := homeDetailMap["Price/Sq.Ft."]
+	if exists {
+		pricePerUnit = convertPrice(homeDetailMap["Price/Sq.Ft."])
+	} else {
+		pricePerUnit = convertPrice(homeDetailMap["Price/Acres"])
+	}
+	return pricePerUnit
+}
+
 // Convert area as string to Area struct
-func parseArea(rawArea string) object.Area {
+func convertArea(rawArea string) object.Area {
 	if rawArea == "" {
 		return object.Area{} // Edge case: Just empty Area
 	}
@@ -277,24 +265,12 @@ func parseArea(rawArea string) object.Area {
 	}
 }
 
-// Parse the price per unit to make sure the unit is correct
-func parsePricePerUnit(homeDetailMap map[string]string) float32 {
-	var pricePerUnit float32
-
-	if _, exists := homeDetailMap["Price/Sq.Ft."]; exists {
-		pricePerUnit = parsePrice(homeDetailMap["Price/Sq.Ft."])
-	} else {
-		pricePerUnit = parsePrice(homeDetailMap["Price/Acres"])
-	}
-	return pricePerUnit
-}
-
 // Convert price from string to float32
-func parsePrice(rawPrice string) float32 {
+func convertPrice(rawPrice string) float32 {
 	price := strings.Split(rawPrice, " ")[0]
 
-	// For some reason, some prices have "+" or "-" after it
 	if string(price[len(price)-1]) == "+" {
+		// For some reason, some prices have "+" or "-" after it
 		return strToFloat32(price[1 : len(price)-1])
 	}
 	return strToFloat32(price[1:])

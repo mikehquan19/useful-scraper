@@ -15,21 +15,14 @@ import (
 
 const carmaxBaseUrl = "https://www.carmax.com"
 
-func ScrapeCars(cityId string, test bool) {
+func ScrapeCars(cityId string) {
 	ctx, cancel := getChromedpContext(getHeader)
 	defer cancel()
 
 	var carLinks []string
 	var err error
-	if test {
-		carLinks = []string{
-			"https://www.carmax.com/car/27760742", "https://www.carmax.com/car/27326038",
-		}
-	} else {
-		carLinks, err = scrapeCarLinks(ctx, cityId)
-		if err != nil {
-			panic(err)
-		}
+	if carLinks, err = scrapeCarLinks(ctx, cityId); err != nil {
+		panic(err)
 	}
 
 	var carInfos []object.CarInfo
@@ -42,11 +35,7 @@ func ScrapeCars(cityId string, test bool) {
 		carInfos = append(carInfos, scrapedCar)
 	}
 
-	if test {
-		writeToFile(carInfos, "car_test")
-	} else {
-		writeToFile(carInfos, "car_garland")
-	}
+	writeToFile(carInfos, "car_garland")
 }
 
 // Get all the car links of the city
@@ -116,14 +105,12 @@ func scrapeCar(cdpCtx context.Context, carLink string) (object.CarInfo, error) {
 	// Scrape the price and milage
 	var price, milage string
 
-	var sel string
-	if elementExists(cdpCtx, "#default-price-display") {
-		sel = "#default-price-display"
-	} else {
+	priceSel := "#default-price-display"
+	if !elementExists(cdpCtx, priceSel) {
 		// Car whose page shows the drop of price
-		sel = "#price-drop-header-display .css-pff6mx"
+		priceSel = "#price-drop-header-display .css-pff6mx"
 	}
-	err = chromedp.Run(cdpCtx, chromedp.Text(sel, &price))
+	err = chromedp.Run(cdpCtx, chromedp.Text(priceSel, &price))
 	if err != nil {
 		return object.CarInfo{}, err
 	}
