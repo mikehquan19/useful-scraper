@@ -17,7 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-const baseUrl = "https://www.redfin.com"
+const baseUrl string = "https://www.redfin.com"
 
 // Main function to scrape the housing info
 func ScrapeHousing(cityHref string, test bool) {
@@ -42,33 +42,27 @@ func ScrapeHousing(cityHref string, test bool) {
 	}
 
 	for _, homeLink := range homeLinks {
-		// Navigate to the page and immediately scrape the price
-		var rawPrice string
+		// Navigate to the page
 		_, err := chromedp.RunResponse(ctx,
-			chromedp.Sleep(1000*time.Millisecond),
+			chromedp.Sleep(1500*time.Millisecond),
 			chromedp.Navigate(homeLink),
-			chromedp.Sleep(2000*time.Millisecond),
-			chromedp.Text(".price-section > .price", &rawPrice),
+			chromedp.Sleep(1500*time.Millisecond),
 		)
 		if err != nil {
 			panic(err)
 		}
-		bedRooms, bathRooms, err := getRooms(ctx)
+
+		var rawPrice string
+		err = chromedp.Run(ctx, chromedp.Text(".price-section > .price", &rawPrice))
 		if err != nil {
 			panic(err)
 		}
-		homeArea, err := getHomeArea(ctx)
-		if err != nil {
-			panic(err)
-		}
-		address, description, err := getAddressAndDescription(ctx)
-		if err != nil {
-			panic(err)
-		}
-		detailMap, err := getDetails(ctx)
-		if err != nil {
-			panic(err)
-		}
+		price := parsePrice(rawPrice)
+
+		bedRooms, bathRooms := getRooms(ctx)
+		homeArea := getHomeArea(ctx)
+		address, description := getAddressAndDescription(ctx)
+		detailMap := getDetails(ctx)
 
 		homeInfos = append(homeInfos, object.RedfinHomeInfo{
 			Id:           primitive.NewObjectID(),
@@ -77,7 +71,7 @@ func ScrapeHousing(cityHref string, test bool) {
 			Bedrooms:     bedRooms,
 			Bathrooms:    bathRooms,
 			HomeArea:     homeArea,
-			Price:        parsePrice(rawPrice),
+			Price:        price,
 			PropertyType: detailMap["Property Type"],
 			YearBuilt:    strToInt32(detailMap["Year Built"]),
 			PricePerUnit: parsePricePerUnit(detailMap),
@@ -147,47 +141,114 @@ func getHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
 }
 
 // Scrape the number of bedrooms and bathrooms
-func getRooms(cdpCtx context.Context) (float32, float32, error) {
+func getRooms(cdpCtx context.Context) (float32, float32) {
 	// By default, let's assume the house or land doesn't have any rooms
 	bedRooms, bathRooms := "0", "0"
 
 	// Get the bed rooms
-	bedRoomTag := ".beds-section .statsValue"
-	err := chromedp.Run(cdpCtx, chromedp.Text(bedRoomTag, &bedRooms))
+	err := chromedp.Run(cdpCtx,
+		chromedp.Text(".beds-section .statsValue", &bedRooms),
+	)
 	if err != nil {
-		return 0, 0, err
+		panic(err)
 	}
 
 	// Get the bath rooms
-	bathRoomTag := ".baths-sections .bath-flyout"
-	if elementExists(cdpCtx, bathRoomTag) {
+	if elementExists(cdpCtx, ".baths-sections .bath-flyout") {
 		var bathRoomText string
-		err = chromedp.Run(cdpCtx, chromedp.Text(bathRoomTag, &bathRoomText))
+		err = chromedp.Run(cdpCtx,
+			chromedp.Text(".baths-sections .bath-flyout", &bathRoomText))
 		if err != nil {
-			return 0, 0, err
+			panic(err)
 		}
 		bathRooms = strings.Split(bathRoomText, " ")[0]
 	}
-	return strToFloat32(bedRooms), strToFloat32(bathRooms), nil
+	return strToFloat32(bedRooms), strToFloat32(bathRooms)
 }
 
 // Scrape the home area
-func getHomeArea(cdpCtx context.Context) (object.Area, error) {
+func getHomeArea(cdpCtx context.Context) object.Area {
 	var homeArea object.Area
 	var err error
 
 	// Contains the unit and value respectively
-	areaTags := [2]string{".sqft-section .statsLabel", ".sqft-section .statsValue"}
 	var areaParts [2]string
-	for idx, areaTag := range areaTags {
+	for idx, areaTag := range [2]string{
+		".sqft-section .statsLabel",
+		".sqft-section .statsValue",
+	} {
 		err = chromedp.Run(cdpCtx, chromedp.Text(areaTag, &areaParts[idx]))
 		if err != nil {
-			return homeArea, err
+			panic(err)
 		}
 	}
 	homeArea.Unit = areaParts[0]
 	homeArea.Value = strToFloat32(areaParts[1])
-	return homeArea, nil
+	return homeArea
+}
+
+// getAddressAndDescription scrapes the address and description
+func getAddressAndDescription(cdpCtx context.Context) (string, string) {
+	var address, description string
+	var err error
+
+	// Get the address
+	if elementExists(cdpCtx, ".street-address") {
+		// Contains street and city
+		var addressParts [2]string
+		for i, tag := range [2]string{".street-address", ".bp-cityStateZip"} {
+			err = chromedp.Run(cdpCtx, chromedp.Text(tag, &addressParts[i]))
+			if err != nil {
+				panic(err)
+			}
+		}
+		address = addressParts[0] + " " + addressParts[1]
+	} else {
+		// For some reason, some houses have different address
+		err = chromedp.Run(cdpCtx, chromedp.Text(".streetAddress", &address))
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// Get the description
+	err = chromedp.Run(cdpCtx, chromedp.Text(".sectionContent p", &description))
+	if err != nil {
+		panic(err)
+	}
+	return address, description
+}
+
+// Scrape the extra information
+func getDetails(cdpCtx context.Context) map[string]string {
+	homeDetailMap := make(map[string]string)
+	var err error
+
+	var nodes []*cdp.Node
+	err = chromedp.Run(cdpCtx,
+		chromedp.Nodes(".keyDetails-row", &nodes, chromedp.ByQueryAll),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	for i := range len(nodes) {
+		// Contains both the key and info
+		var parts [2]string
+		tag := fmt.Sprintf(".keyDetails-row:nth-child(%d)", i+2)
+
+		for j, tagType := range [2]string{" .valueType", " .valueText"} {
+			err = chromedp.Run(cdpCtx, chromedp.Text(tag+tagType, &parts[j]))
+			if err != nil {
+				panic(err)
+			}
+		}
+		homeDetailMap[parts[0]] = parts[1]
+	}
+
+	// Parse the default value of HOA values and parking
+	parseHoaAndParking(homeDetailMap)
+	return homeDetailMap
 }
 
 // Convert area as string to Area struct
@@ -197,7 +258,7 @@ func parseArea(rawArea string) object.Area {
 	}
 	splittedArea := strings.Split(rawArea, " ")
 	unit := splittedArea[1] // Default: arces
-	if splittedArea[1] == "sq" {
+	if unit == "sq" {
 		unit += " " + splittedArea[2] // sq + ft
 	}
 	return object.Area{
@@ -206,82 +267,18 @@ func parseArea(rawArea string) object.Area {
 	}
 }
 
-// getAddressAndDescription scrapes the address and description
-func getAddressAndDescription(cdpCtx context.Context) (string, string, error) {
-	var address, description string
-	var err error
-
-	// Get the address
-	// For some reason, some houses have different address
-	addressTags := [2]string{".street-address", ".bp-cityStateZip"}
-	addressTag2 := ".streetAddress"
-	if elementExists(cdpCtx, addressTags[0]) {
-		// Contains street and city
-		var addressParts [2]string
-		for i, tag := range addressTags {
-			err = chromedp.Run(cdpCtx, chromedp.Text(tag, &addressParts[i]))
-			if err != nil {
-				return "", "", err
-			}
-		}
-		address = addressParts[0] + " " + addressParts[1]
-	} else {
-		err = chromedp.Run(cdpCtx, chromedp.Text(addressTag2, &address))
-		if err != nil {
-			return "", "", err
-		}
-	}
-
-	// Get the description
-	err = chromedp.Run(cdpCtx, chromedp.Text(".sectionContent p", &description))
-	if err != nil {
-		return "", "", err
-	}
-	return address, description, nil
-}
-
-// Scrape the extra information
-func getDetails(cdpCtx context.Context) (map[string]string, error) {
-	homeDetailMap := make(map[string]string)
-	var err error
-
-	var nodes []*cdp.Node
-	err = chromedp.Run(cdpCtx,
-		chromedp.Nodes(".keyDetails-row", &nodes, chromedp.ByQueryAll))
-	if err != nil {
-		return nil, err
-	}
-
-	for i := range len(nodes) {
-		// Contains both the key and info
-		var nodeParts [2]string
-		tag := fmt.Sprintf(".keyDetails-row:nth-child(%d)", i+2)
-
-		for j, tagType := range [2]string{"valueType", "valueText"} {
-			err = chromedp.Run(cdpCtx, chromedp.Text(tag+" ."+tagType, &nodeParts[j]))
-			if err != nil {
-				return nil, err
-			}
-		}
-		// Parse the default value of HOA values and parking
-		homeDetailMap[nodeParts[0]] = nodeParts[1]
-		parseHoaAndParking(homeDetailMap)
-	}
-	return homeDetailMap, nil
-}
-
 // Convert HOA dues & parking field of the detail map
 func parseHoaAndParking(homeDetailMap map[string]string) {
 	// Parse HOA dues
 	hoaDues, exists := homeDetailMap["HOA Dues"]
-	if !exists {
-		homeDetailMap["HOA Dues"] = "0"
-	} else {
-		// Find the sequence of digits that will be HOA
+	if exists {
 		homeDetailMap["HOA Dues"] = regexp.MustCompile(`\d+`).FindString(hoaDues)
+	} else {
+		homeDetailMap["HOA Dues"] = "0"
 	}
 	// Parse parking lot
-	if _, exists = homeDetailMap["Parking"]; !exists {
+	_, exists = homeDetailMap["Parking"]
+	if !exists {
 		homeDetailMap["Parking"] = "Not provided"
 	}
 }
@@ -289,12 +286,12 @@ func parseHoaAndParking(homeDetailMap map[string]string) {
 // Convert price from string to float32
 func parsePrice(rawPrice string) float32 {
 	price := strings.Split(rawPrice, " ")[0]
+
+	// For some reason, some prices have "+" or "-" after it
 	if string(price[len(price)-1]) == "+" {
-		// For some reason, some prices have "+" or "-" after it
 		return strToFloat32(price[1 : len(price)-1])
-	} else {
-		return strToFloat32(price[1:])
 	}
+	return strToFloat32(price[1:])
 }
 
 // Parse the price per unit to make sure the unit is correct

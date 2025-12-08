@@ -54,23 +54,22 @@ func scrapeCarLinks(cdpCtx context.Context, cityId string) ([]string, error) {
 	var carLinks []string
 	_, err := chromedp.RunResponse(cdpCtx,
 		chromedp.Navigate(fmt.Sprintf("%s/cars/%s", carmaxBaseUrl, cityId)),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			for elementExists(ctx, "#see-more-button") {
-				err := chromedp.Run(ctx,
-					chromedp.ScrollIntoView("#see-more-button", chromedp.ByQuery),
-					chromedp.Sleep(500*time.Millisecond),
-					chromedp.Click("#see-more-button", chromedp.ByQuery),
-					chromedp.Sleep(1500*time.Millisecond),
-				)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		}),
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Scroll all the way to the end of the website
+	for elementExists(cdpCtx, "#see-more-button") {
+		err := chromedp.Run(cdpCtx,
+			chromedp.ScrollIntoView("#see-more-button", chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+			chromedp.Click("#see-more-button", chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var carLinkNodes []*cdp.Node
@@ -94,58 +93,50 @@ func scrapeCarLinks(cdpCtx context.Context, cityId string) ([]string, error) {
 // Scrape each car
 func scrapeCar(cdpCtx context.Context, carLink string) (object.CarInfo, error) {
 	// Navigate to the page and immediately scrape the make, model, year
-	var make, model, year string
 
-	_, err := chromedp.RunResponse(cdpCtx,
-		chromedp.Navigate(carLink),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			var carTitle string
-			err := chromedp.Text("#car-header-car-basic-info", &carTitle).Do(ctx)
-			if err != nil {
-				return err
-			}
-			// Parse the make, model, and year
-			titleParts := strings.Split(carTitle, " ")
-			make, model = titleParts[1], strings.Join(titleParts[2:], " ")
-			year = titleParts[0]
-			return nil
-		}),
+	_, err := chromedp.RunResponse(cdpCtx, chromedp.Navigate(carLink))
+	if err != nil {
+		return object.CarInfo{}, err
+	}
+
+	var carTitle string
+	err = chromedp.Run(cdpCtx,
+		chromedp.Text("#car-header-car-basic-info", &carTitle),
 	)
 	if err != nil {
 		return object.CarInfo{}, err
 	}
+
+	// Parse the make, model, and year
+	titleParts := strings.Split(carTitle, " ")
+	year := titleParts[0]
+	make := titleParts[1]
+	model := strings.Join(titleParts[2:], " ")
 
 	// Scrape the price and milage
 	var price, milage string
-	err = chromedp.Run(cdpCtx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			var rawPrice, rawMilage string
 
-			var sel string
-			if elementExists(ctx, "#default-price-display") {
-				sel = "#default-price-display"
-			} else {
-				// Car whose page shows the drop of price
-				sel = "#price-drop-header-display .css-pff6mx"
-			}
-
-			if err = chromedp.Text(sel, &rawPrice, chromedp.ByQuery).Do(ctx); err != nil {
-				return err
-			}
-			// Scrape the milage, same for every car
-			if err = chromedp.Text(".car-header-milage", &rawMilage).Do(ctx); err != nil {
-				return err
-			}
-			// Parse the milage and price
-			regex := regexp.MustCompile(`\d+`)
-			milage = regex.FindString(rawMilage)
-			price = regex.FindString(strings.ReplaceAll(rawPrice, ",", ""))
-			return nil
-		}),
-	)
+	var sel string
+	if elementExists(cdpCtx, "#default-price-display") {
+		sel = "#default-price-display"
+	} else {
+		// Car whose page shows the drop of price
+		sel = "#price-drop-header-display .css-pff6mx"
+	}
+	err = chromedp.Run(cdpCtx, chromedp.Text(sel, &price))
 	if err != nil {
 		return object.CarInfo{}, err
 	}
+	// Scrape the milage
+	err = chromedp.Run(cdpCtx, chromedp.Text(".car-header-milage", &milage))
+	if err != nil {
+		return object.CarInfo{}, err
+	}
+
+	digitsRegex := regexp.MustCompile(`\d+`)
+	// Parse the milage and price
+	milage = digitsRegex.FindString(milage)
+	price = digitsRegex.FindString(strings.ReplaceAll(price, ",", ""))
 
 	return object.CarInfo{
 		Id:     primitive.NewObjectID(),
