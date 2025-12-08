@@ -246,8 +246,18 @@ func getDetails(cdpCtx context.Context) map[string]string {
 		homeDetailMap[parts[0]] = parts[1]
 	}
 
-	// Parse the default value of HOA values and parking
-	parseHoaAndParking(homeDetailMap)
+	// Convert HOA dues & parking field of the detail map
+	hoaDues, exists := homeDetailMap["HOA Dues"]
+	if exists {
+		homeDetailMap["HOA Dues"] = regexp.MustCompile(`\d+`).FindString(hoaDues)
+	} else {
+		homeDetailMap["HOA Dues"] = "0"
+	}
+
+	_, exists = homeDetailMap["Parking"]
+	if !exists {
+		homeDetailMap["Parking"] = "Not provided"
+	}
 	return homeDetailMap
 }
 
@@ -267,20 +277,16 @@ func parseArea(rawArea string) object.Area {
 	}
 }
 
-// Convert HOA dues & parking field of the detail map
-func parseHoaAndParking(homeDetailMap map[string]string) {
-	// Parse HOA dues
-	hoaDues, exists := homeDetailMap["HOA Dues"]
-	if exists {
-		homeDetailMap["HOA Dues"] = regexp.MustCompile(`\d+`).FindString(hoaDues)
+// Parse the price per unit to make sure the unit is correct
+func parsePricePerUnit(homeDetailMap map[string]string) float32 {
+	var pricePerUnit float32
+
+	if _, exists := homeDetailMap["Price/Sq.Ft."]; exists {
+		pricePerUnit = parsePrice(homeDetailMap["Price/Sq.Ft."])
 	} else {
-		homeDetailMap["HOA Dues"] = "0"
+		pricePerUnit = parsePrice(homeDetailMap["Price/Acres"])
 	}
-	// Parse parking lot
-	_, exists = homeDetailMap["Parking"]
-	if !exists {
-		homeDetailMap["Parking"] = "Not provided"
-	}
+	return pricePerUnit
 }
 
 // Convert price from string to float32
@@ -292,16 +298,4 @@ func parsePrice(rawPrice string) float32 {
 		return strToFloat32(price[1 : len(price)-1])
 	}
 	return strToFloat32(price[1:])
-}
-
-// Parse the price per unit to make sure the unit is correct
-func parsePricePerUnit(homeDetailMap map[string]string) float32 {
-	var pricePerUnit float32
-
-	if _, exists := homeDetailMap["Price/Sq.Ft."]; exists {
-		pricePerUnit = parsePrice(homeDetailMap["Price/Sq.Ft."])
-	} else {
-		pricePerUnit = parsePrice(homeDetailMap["Price/Acres"])
-	}
-	return pricePerUnit
 }
