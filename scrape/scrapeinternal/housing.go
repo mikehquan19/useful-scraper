@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -45,10 +46,10 @@ func ScrapeHousing(cityHref string) {
 		if err = saveHTML(ctx, homeLinks); err != nil {
 			panic(fmt.Errorf("Failed to save the home infos to directory\n%s", err))
 		}
-	}
-
-	if err = parseData(); err != nil {
-		panic(fmt.Errorf("Failed to parse the home\n%s", err))
+	} else {
+		if err = parseData(); err != nil {
+			panic(fmt.Errorf("Failed to parse the home\n%s", err))
+		}
 	}
 }
 
@@ -79,6 +80,7 @@ func getHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
 		_, err = chromedp.RunResponse(cdpCtx,
 			chromedp.Sleep(1000*time.Millisecond),
 			chromedp.Navigate(REDFIN_URL+pageHref),
+			chromedp.WaitVisible(".bp-Homecard__Address"),
 			chromedp.Nodes(".bp-Homecard__Address", &homeNodes, chromedp.ByQueryAll),
 		)
 		if err != nil {
@@ -149,6 +151,7 @@ func saveHTML(cdpCtx context.Context, homeLinks []string) error {
 
 func parseData() error {
 	var homeInfos []object.RedfinHomeInfo
+	fmt.Println("Parsing home infos...")
 
 	err := filepath.WalkDir("./data", func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() || !strings.HasSuffix(path, ".html") {
@@ -167,6 +170,7 @@ func parseData() error {
 			return err
 		}
 
+		// Parse the value from the HTML doc
 		bedrooms, bathrooms := getRooms(htmlContent)
 		area, err := getArea(htmlContent)
 		if err != nil {
@@ -179,19 +183,28 @@ func parseData() error {
 			return nil
 		}
 
+		detailsMap := getDetails(htmlContent)
+
 		homeInfos = append(homeInfos, object.RedfinHomeInfo{
-			Id:        primitive.NewObjectID(),
-			Address:   htmlContent.Find(".full-address").Text(),
-			Bedrooms:  bedrooms,
-			Bathrooms: bathrooms,
-			HomeArea:  area,
-			Price:     price,
+			Id:           primitive.NewObjectID(),
+			Address:      htmlContent.Find(".full-address").Text(),
+			Bedrooms:     bedrooms,
+			Bathrooms:    bathrooms,
+			HomeArea:     area,
+			Price:        price,
+			PropertyType: detailsMap["Property Type"].(string),
+			YearBuilt:    detailsMap["Year Built"].(int32),
+			PricePerUnit: detailsMap["Price/Sq.Ft."].(float32),
+			LotArea:      detailsMap["Lot Size"].(object.Area),
+			HOADues:      detailsMap["HOA Dues"].(float32),
+			Parking:      detailsMap["Parking"].(string),
 		})
 
 		return nil
 	})
 
 	fmt.Println(homeInfos)
+	fmt.Printf("Parsed %d home infos completely!", len(homeInfos))
 	return err
 }
 
@@ -218,7 +231,7 @@ func getRooms(content *goquery.Document) (float32, float32) {
 // getArea parses the the house's area from the HTML documents
 func getArea(content *goquery.Document) (object.Area, error) {
 	unit := strings.ReplaceAll(
-		// Remove any space between the unit
+		// Remove any space among the unit
 		content.Find(".sqft-section .statsLabel").Text(), " ", "",
 	)
 
@@ -228,8 +241,7 @@ func getArea(content *goquery.Document) (object.Area, error) {
 		strings.ReplaceAll(text, ",", ""), 32,
 	)
 	if err != nil {
-		// Area must be able to be parsed
-		// This house's listing is invalid since it has invalid area
+		// This house's listing has invalid area
 		return object.Area{}, err
 	}
 
@@ -240,14 +252,87 @@ func getArea(content *goquery.Document) (object.Area, error) {
 }
 
 func getPrice(content *goquery.Document) (float32, error) {
-	priceText := content.Find(".price").Text()[1:]
-	price, err := strconv.ParseFloat(
-		strings.ReplaceAll(priceText, ",", ""), 32,
-	)
+	text := content.Find(".price").Text()[1:]
+	price, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", ""), 32)
 	if err != nil {
-		// This house's listing is considered invalid
+		// This house's listing has invalid price
 		return 0, err
 	}
 
 	return float32(price), nil
+}
+
+func getDetails(content *goquery.Document) map[string]any {
+	detailsMap := make(map[string]any)
+
+	content.Find(".keyDetails-value").Each(func(i int, s *goquery.Selection) {
+		detailsMap[s.Find(".valueType").Text()] =
+			s.Find(".valueText").Text()
+	})
+
+	// NOTE: Home is allowed to have missing or invalid details, we will ignore it
+	// Parse the year built
+	value, _ := strconv.Atoi(detailsMap["Year Built"].(string))
+	detailsMap["Year Built"] = int32(value)
+
+	// Parse the lot size
+	_, ok := detailsMap["Lot Size"]
+	if !ok {
+		detailsMap["Lot Size"] = object.Area{}
+	} else {
+		lotSizeParts := strings.Split(detailsMap["Lot Size"].(string), " ")
+
+		unit := lotSizeParts[1]
+		if len(lotSizeParts) > 2 {
+			unit += lotSizeParts[2]
+		}
+
+		value, err := strconv.ParseFloat(
+			strings.ReplaceAll(lotSizeParts[0], ",", ""), 32,
+		)
+		if err != nil {
+			detailsMap["Lot Size"] = object.Area{}
+		}
+
+		detailsMap["Lot Size"] = object.Area{
+			Unit:  unit,
+			Value: float32(value),
+		}
+	}
+
+	// Parse the price per unit
+	_, ok = detailsMap["Price/Sq.Ft."]
+	if !ok {
+		detailsMap["Price/Sq.Ft."] = float32(0)
+	} else {
+		value, err := strconv.ParseFloat(detailsMap["Price/Sq.Ft."].(string)[1:], 32)
+		if err != nil {
+			detailsMap["Price/Sq.Ft."] = float32(0)
+		} else {
+			detailsMap["Price/Sq.Ft."] = float32(value)
+		}
+	}
+
+	// Parse the HOA
+	_, ok = detailsMap["HOA Dues"]
+	if !ok {
+		detailsMap["HOA Dues"] = float32(0)
+	} else {
+		regex := regexp.MustCompile(`[\d.]+`)
+		value, err := strconv.ParseFloat(
+			regex.FindString(detailsMap["HOA Dues"].(string)), 32,
+		)
+		if err != nil {
+			detailsMap["HOA Dues"] = float32(0)
+		} else {
+			detailsMap["HOA Dues"] = float32(value)
+		}
+	}
+
+	_, ok = detailsMap["Parking"]
+	if !ok {
+		detailsMap["Parking"] = "Not provided"
+	}
+
+	return detailsMap
 }
