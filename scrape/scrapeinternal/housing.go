@@ -155,6 +155,7 @@ func parseData() error {
 			// The entry is a directory or a non-HTML file, we will skip
 			return nil
 		}
+		// Get the HTML doc from the file
 		file, err := os.Open(path)
 		if err != nil {
 			return err
@@ -172,6 +173,7 @@ func parseData() error {
 			Address:   htmlContent.Find(".full-address").Text(),
 			Bedrooms:  bedrooms,
 			Bathrooms: bathrooms,
+			HomeArea:  getArea(htmlContent),
 		})
 
 		return nil
@@ -189,7 +191,7 @@ func getRooms(content *goquery.Document) (float32, float32) {
 	}
 
 	text = content.Find(".baths-section .bath-flyout").Text()
-	// Split since num is displayed with labels
+	// Extract num which is displayed with labels
 	text = strings.Split(text, " ")[0]
 	bathrooms, err := strconv.ParseFloat(text, 32)
 	if err != nil {
@@ -197,4 +199,26 @@ func getRooms(content *goquery.Document) (float32, float32) {
 	}
 
 	return float32(bedrooms), float32(bathrooms)
+}
+
+// getArea parses the the house's area from the HTML documents
+func getArea(content *goquery.Document) object.Area {
+	unit := strings.ReplaceAll(
+		// "sq ft" -> "sqft"
+		content.Find(".sqft-section .statsLabel").Text(), " ", "",
+	)
+
+	text := content.Find(".sqft-section .statsValue").Text()
+	value, err := strconv.ParseFloat(
+		// Remove the , from the number to parse
+		strings.ReplaceAll(text, ",", ""), 32,
+	)
+	if err != nil {
+		value = 0
+	}
+
+	return object.Area{
+		Unit:  unit,
+		Value: float32(value),
+	}
 }
