@@ -131,7 +131,7 @@ func saveHTML(cdpCtx context.Context, homeLinks []string) error {
 			return err
 		}
 
-		html := fmt.Appendf(nil, "%s%s", basicInfo, keyDetails)
+		html := fmt.Appendf(nil, "<div>%s%s</div>", basicInfo, keyDetails)
 		err = os.WriteFile(filepath, html, 0755)
 		if err != nil {
 			return err
@@ -153,6 +153,7 @@ func parseData() error {
 	err := filepath.WalkDir("./data", func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() || !strings.HasSuffix(path, ".html") {
 			// The entry is a directory or a non-HTML file, we will skip
+			// TODO: Find a stronger way to enforce the HTML-only policy in ./data
 			return nil
 		}
 		// Get the HTML doc from the file
@@ -167,13 +168,24 @@ func parseData() error {
 		}
 
 		bedrooms, bathrooms := getRooms(htmlContent)
+		area, err := getArea(htmlContent)
+		if err != nil {
+			// This house's listing has invalid area, so we will skip it
+			return nil
+		}
+		price, err := getPrice(htmlContent)
+		if err != nil {
+			// Skip invalid price
+			return nil
+		}
 
 		homeInfos = append(homeInfos, object.RedfinHomeInfo{
 			Id:        primitive.NewObjectID(),
 			Address:   htmlContent.Find(".full-address").Text(),
 			Bedrooms:  bedrooms,
 			Bathrooms: bathrooms,
-			HomeArea:  getArea(htmlContent),
+			HomeArea:  area,
+			Price:     price,
 		})
 
 		return nil
@@ -184,16 +196,18 @@ func parseData() error {
 }
 
 func getRooms(content *goquery.Document) (float32, float32) {
-	text := content.Find(".beds-section .statsValue").Text()
-	bedrooms, err := strconv.ParseFloat(text, 32)
+	bedrooms, err := strconv.ParseFloat(
+		content.Find(".beds-section .statsValue").Text(), 32,
+	)
 	if err != nil {
-		bedrooms = 0
+		bedrooms = 0 // It's okay since some houses have no beds :)
 	}
 
-	text = content.Find(".baths-section .bath-flyout").Text()
-	// Extract num which is displayed with labels
-	text = strings.Split(text, " ")[0]
-	bathrooms, err := strconv.ParseFloat(text, 32)
+	text := content.Find(".baths-section .bath-flyout").Text()
+	bathrooms, err := strconv.ParseFloat(
+		// Extract num because it is displayed together with labels
+		strings.Split(text, " ")[0], 32,
+	)
 	if err != nil {
 		bathrooms = 0
 	}
@@ -202,9 +216,9 @@ func getRooms(content *goquery.Document) (float32, float32) {
 }
 
 // getArea parses the the house's area from the HTML documents
-func getArea(content *goquery.Document) object.Area {
+func getArea(content *goquery.Document) (object.Area, error) {
 	unit := strings.ReplaceAll(
-		// "sq ft" -> "sqft"
+		// Remove any space between the unit
 		content.Find(".sqft-section .statsLabel").Text(), " ", "",
 	)
 
@@ -214,11 +228,26 @@ func getArea(content *goquery.Document) object.Area {
 		strings.ReplaceAll(text, ",", ""), 32,
 	)
 	if err != nil {
-		value = 0
+		// Area must be able to be parsed
+		// This house's listing is invalid since it has invalid area
+		return object.Area{}, err
 	}
 
 	return object.Area{
 		Unit:  unit,
 		Value: float32(value),
+	}, nil
+}
+
+func getPrice(content *goquery.Document) (float32, error) {
+	priceText := content.Find(".price").Text()[1:]
+	price, err := strconv.ParseFloat(
+		strings.ReplaceAll(priceText, ",", ""), 32,
+	)
+	if err != nil {
+		// This house's listing is considered invalid
+		return 0, err
 	}
+
+	return float32(price), nil
 }
