@@ -5,31 +5,31 @@ import (
 )
 
 type Area struct {
-	Unit  string
-	Value float32
+	Unit  string  `json:"unit" bson:"unit"`
+	Value float32 `json:"value" bson:"value"`
 }
 
 type Price struct {
-	Unit  string
-	Value float32
+	Unit  string  `json:"unit" bson:"unit"`
+	Value float32 `json:"value" bson:"value"`
 }
 
 // Home info data to be uploaded to the Mongo database
 type RedfinHomeInfo struct {
-	Id           primitive.ObjectID
-	Address      string
-	Description  string
-	Bedrooms     float32
-	Bathrooms    float32
-	HomeArea     Area
-	Price        float32
-	PropertyType string
-	YearBuilt    int32
-	PricePerUnit float32
-	LotArea      Area
-	HOADues      float32
-	Parking      string
-	Url          string
+	Id           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	Address      string             `json:"address" bson:"address"`
+	Description  string             `json:"description" bson:"description"`
+	Bedrooms     float32            `json:"bedrooms" bson:"bedrooms"`
+	Bathrooms    float32            `json:"bathrooms" bson:"bathrooms"`
+	HomeArea     Area               `json:"home_area" bson:"home_area"`
+	Price        float32            `json:"price" bson:"price"`
+	PropertyType string             `json:"property_type" bson:"property_type"`
+	YearBuilt    int32              `json:"year_built" bson:"year_built"`
+	PricePerUnit float32            `json:"price_per_unit" bson:"price_per_unit"`
+	LotArea      Area               `json:"lot_area" bson:"lot_area"`
+	HOADues      float32            `json:"hoa_dues" bson:"hoa_dues"`
+	Parking      string             `json:"parking" bson:"parking"`
+	Url          string             `json:"url" bson:"url"`
 }
 
 type FuelEconomy struct {

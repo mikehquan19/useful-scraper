@@ -17,8 +17,9 @@ import (
 // or other anti-bot algorithms
 func getChromedpContext(getHeaderFunc func() map[string]any) (context.Context, context.CancelFunc) {
 	// By default, the context are headful
-	allocOptions := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),
+	allocOptions := append(
+		chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 	)
 	chromedpCtx, _ := chromedp.NewExecAllocator(context.Background(), allocOptions...)
