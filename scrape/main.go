@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/mikehquan19/useful-scraper/scrape/scrapeinternal"
+	"github.com/mikehquan19/useful-scraper/scrape/internal"
 )
 
 func main() {
@@ -15,9 +15,9 @@ func main() {
 
 	switch *objectPtr {
 	case "house":
-		scrapeinternal.ScrapeHousing(*houseCityHrefPtr)
+		internal.ScrapeHousing(*houseCityHrefPtr)
 	case "car":
-		scrapeinternal.ScrapeCars(*carCityIdPtr)
+		internal.ScrapeCars(*carCityIdPtr)
 	default:
 		fmt.Println("Other objects are currently not supported yet.")
 	}

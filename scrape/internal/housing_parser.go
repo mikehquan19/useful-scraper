@@ -1,4 +1,4 @@
-package scrapeinternal
+package internal
 
 import (
 	"fmt"

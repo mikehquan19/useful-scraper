@@ -1,6 +1,6 @@
 /* Housing data scraper from Redfin.com */
 
-package scrapeinternal
+package internal
 
 import (
 	"context"
