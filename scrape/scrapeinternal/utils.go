@@ -75,7 +75,7 @@ func getHeader() map[string]any {
 }
 
 // Write the list of objects to file
-func writeToFile[T any](objectList []T, fileName string) {
+func writeToFile[T any](objectList []T, outDir string) {
 	// Convert the list to the json
 	jsonData, err := json.Marshal(objectList)
 	if err != nil {
@@ -83,7 +83,7 @@ func writeToFile[T any](objectList []T, fileName string) {
 	}
 
 	// Write to JSON file,
-	err = os.WriteFile(fmt.Sprintf("./data/%s.json", fileName), jsonData, 0644)
+	err = os.WriteFile(outDir, jsonData, 0644)
 	if err != nil {
 		fmt.Println(err)
 	}
