@@ -121,18 +121,43 @@ func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
 
 			chromedp.WaitVisible(".keyDetailsList"),
 			chromedp.OuterHTML(".keyDetailsList", &keyDetails, chromedp.ByQuery),
-
-			chromedp.WaitVisible(".schools-content"),
-			chromedp.OuterHTML(".schools-content", &schoolInfo, chromedp.ByQuery),
-
-			chromedp.WaitVisible(".agent-info-section"),
-			chromedp.OuterHTML(".agent-info-section", &agentInfo, chromedp.ByQuery),
 		)
 		if err != nil {
 			return err
 		}
 
-		html := fmt.Appendf(nil, "<div>%s%s%s%s</div>", basicInfo, keyDetails, schoolInfo, agentInfo)
+		timedoutCtx, timedoutCancel := context.WithTimeout(cdpCtx, 10*time.Second)
+		defer timedoutCancel()
+		err = chromedp.Run(timedoutCtx,
+			chromedp.WaitVisible(".agent-info-section"),
+			chromedp.OuterHTML(".agent-info-section", &agentInfo, chromedp.ByQuery),
+		)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				fmt.Println("Agents not available in the website")
+			} else {
+				return err
+			}
+		}
+
+		timedoutCtx, timedoutCancel = context.WithTimeout(cdpCtx, 10*time.Second)
+		defer timedoutCancel()
+		err = chromedp.Run(timedoutCtx,
+			chromedp.WaitVisible(".schools-content"),
+			chromedp.OuterHTML(".schools-content", &schoolInfo, chromedp.ByQuery),
+		)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				fmt.Println("Schools not available in the website")
+			} else {
+				return err
+			}
+		}
+
+		html := fmt.Appendf(nil,
+			"<div>%s%s%s%s</div>",
+			basicInfo, keyDetails, agentInfo, schoolInfo,
+		)
 		err = os.WriteFile(dir, html, 0755)
 		if err != nil {
 			return err
