@@ -52,29 +52,29 @@ type HomeInfo struct {
 }
 
 type FuelEconomy struct {
-	CityMPG    float32
-	HighwayMPG float32
+	CityMPG    float32 `json:"city_mpg" bson:"city_mpg"`
+	HighwayMPG float32 `json:"highway_mpg" bson:"highway_mpg"`
 }
 
 type Engine struct {
-	Cyclinders   int
-	FuelType     string
-	Displacement float32
+	Cylinders    int     `json:"cylinders" bson:"cylinders"`
+	FuelType     string  `json:"fuel_type" bson:"fuel_type"`
+	Displacement float32 `json:"displacement" bson:"displacement"`
 }
 
 type CarInfo struct {
-	Id             primitive.ObjectID
-	Make           string
-	Model          string
-	Year           int32
-	Color          string
-	Milage         float32
-	Price          float32
-	Engine         Engine
-	Tranmission    string
-	DriveType      string
-	MilesPerGallon FuelEconomy
-	Vin            int64
-	Features       []string
-	Url            string
+	Id             primitive.ObjectID `json:"id" bson:"_id"`
+	Make           string             `json:"make" bson:"make"`
+	Model          string             `json:"model" bson:"model"`
+	Year           int32              `json:"year" bson:"year"`
+	Color          string             `json:"color" bson:"color"`
+	Mileage        float32            `json:"mileage" bson:"mileage"`
+	Price          float32            `json:"price" bson:"price"`
+	Engine         Engine             `json:"engine" bson:"engine"`
+	Transmission   string             `json:"transmission" bson:"transmission"`
+	DriveType      string             `json:"drive_type" bson:"drive_type"`
+	MilesPerGallon FuelEconomy        `json:"miles_per_gallon" bson:"miles_per_gallon"`
+	Vin            int64              `json:"vin" bson:"vin"`
+	Features       []string           `json:"features" bson:"features"`
+	Url            string             `json:"url" bson:"url"`
 }

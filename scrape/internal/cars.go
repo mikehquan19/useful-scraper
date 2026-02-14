@@ -126,11 +126,11 @@ func scrapeCar(cdpCtx context.Context, carLink string) (object.CarInfo, error) {
 	price = digitsRegex.FindString(strings.ReplaceAll(price, ",", ""))
 
 	return object.CarInfo{
-		Id:     primitive.NewObjectID(),
-		Make:   make,
-		Model:  model,
-		Year:   strToInt32(year),
-		Milage: strToFloat32(milage),
-		Price:  strToFloat32(price),
+		Id:      primitive.NewObjectID(),
+		Make:    make,
+		Model:   model,
+		Year:    strToInt32(year),
+		Mileage: strToFloat32(milage),
+		Price:   strToFloat32(price),
 	}, nil
 }
