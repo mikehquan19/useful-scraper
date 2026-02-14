@@ -101,11 +101,11 @@ func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
 	for _, homeLink := range homeLinks {
 		// Check if the house is already in file strorage
 		filename := path.Base(strings.TrimRight(homeLink, "/"))
-		filepath := fmt.Sprintf("./data/%s.html", filename)
+		dir := fmt.Sprintf("./data/%s.html", filename)
 
-		_, err := os.Stat(filepath)
+		_, err := os.Stat(dir)
 		if err == nil {
-			fmt.Println(filepath + " exists!")
+			fmt.Println(dir + " exists!")
 			continue
 		} else if !os.IsNotExist(err) {
 			return err
@@ -133,7 +133,7 @@ func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
 		}
 
 		html := fmt.Appendf(nil, "<div>%s%s%s%s</div>", basicInfo, keyDetails, schoolInfo, agentInfo)
-		err = os.WriteFile(filepath, html, 0755)
+		err = os.WriteFile(dir, html, 0755)
 		if err != nil {
 			return err
 		}

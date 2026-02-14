@@ -73,7 +73,7 @@ func parseHomeData() error {
 			HOADues:      detailsMap["HOA Dues"].(float32),
 			Parking:      detailsMap["Parking"].(string),
 			Schools:      schools,
-			Contact:      getAgent(htmlContent),
+			Contact:      getAgents(htmlContent),
 		})
 
 		return nil
@@ -87,17 +87,17 @@ func parseHomeData() error {
 func getAddress(content *goquery.Document) (object.Address, error) {
 	text := content.Find(".full-address").Text()
 
-	addressParts := strings.Split(text, ", ")
-	if len(addressParts) < 3 {
+	splitAddress := strings.Split(text, ", ")
+	if len(splitAddress) < 3 {
 		return object.Address{}, fmt.Errorf("Address missing info, which is non-parsable")
 	}
-	lastParts := strings.Split(addressParts[2], " ")
+	stateAndZip := strings.Split(splitAddress[2], " ")
 
 	return object.Address{
-		Street:  addressParts[0],
-		City:    addressParts[1],
-		State:   lastParts[0],
-		Zipcode: lastParts[1],
+		Street:  splitAddress[0],
+		City:    splitAddress[1],
+		State:   stateAndZip[0],
+		Zipcode: stateAndZip[1],
 	}, nil
 }
 
@@ -122,8 +122,8 @@ func getRooms(content *goquery.Document) (float32, float32, error) {
 }
 
 func getArea(content *goquery.Document) (object.Area, error) {
+	// Remove any space among the unit
 	unit := strings.ReplaceAll(
-		// Remove any space among the unit
 		content.Find(".sqft-section .statsLabel").Text(), " ", "",
 	)
 
@@ -222,39 +222,46 @@ func getDetails(content *goquery.Document) map[string]any {
 
 func getSchools(content *goquery.Document) ([]object.School, error) {
 	var nearbySchools []object.School
-	var err error
+	var parseErr error
 
 	content.Find(".ListItem__content").Each(func(i int, s *goquery.Selection) {
-		schoolName := s.Find(".ListItem__heading").Text()
 		schoolDescription := strings.Split(
 			s.Find(".ListItem__description").Text(), " • ",
 		)
 		if len(schoolDescription) < 3 {
-			err = fmt.Errorf("Description missing information")
+			parseErr = fmt.Errorf("Description missing information")
 			return
 		}
 		nearbySchools = append(nearbySchools, object.School{
-			Name:     schoolName,
+			Name:     s.Find(".ListItem__heading").Text(),
 			Type:     schoolDescription[0],
 			Distance: schoolDescription[2],
 		})
 	})
 
-	return nearbySchools, err
+	return nearbySchools, parseErr
 }
 
-func getAgent(content *goquery.Document) object.HomeContact {
-	companyContent := content.Find(".agent-basic-details--broker span")
-	companyContent.Find(".font-dot").Remove()
-	company := strings.TrimSpace(companyContent.Not(".font-dot").Text())
+func getAgents(content *goquery.Document) object.HomeContact {
+	var realtors, companies string
+	content.Find(".listing-agent-item").Each(
+		func(i int, s *goquery.Selection) {
+			r := s.Find(".agent-basic-details--heading span")
+			realtors += r.Text() + ", "
 
-	phoneRegex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
-	phoneNumber := phoneRegex.FindString(
+			c := s.Find(".agent-basic-details--broker span")
+			c.Find(".font-dot").Remove()
+			companies += strings.TrimSpace(c.Not(".font-dot").Text()) + ", "
+		},
+	)
+
+	regex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
+	phoneNumber := regex.FindString(
 		content.Find(".listingContactSection").Text(),
 	)
 	return object.HomeContact{
-		Realtor:     content.Find(".agent-basic-details--heading span").Text(),
-		Company:     company,
+		Realtor:     strings.TrimRight(realtors, ", "),
+		Company:     strings.TrimRight(companies, ", "),
 		PhoneNumber: phoneNumber,
 	}
 }
