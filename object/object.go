@@ -37,6 +37,7 @@ type School struct {
 type HomeInfo struct {
 	Id           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	Address      Address            `json:"address" bson:"address"`
+	Description  string             `json:"description" bson:"description"`
 	Bedrooms     float32            `json:"bedrooms" bson:"bedrooms"`
 	Bathrooms    float32            `json:"bathrooms" bson:"bathrooms"`
 	HomeArea     Area               `json:"home_area" bson:"home_area"`

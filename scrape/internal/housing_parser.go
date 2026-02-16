@@ -62,6 +62,7 @@ func parseHomeData() error {
 		homeInfos = append(homeInfos, object.HomeInfo{
 			Id:           primitive.NewObjectID(),
 			Address:      address,
+			Description:  htmlContent.Find(".remarks").Text(),
 			Bedrooms:     bedrooms,
 			Bathrooms:    bathrooms,
 			HomeArea:     area,
@@ -159,7 +160,7 @@ func getDetails(content *goquery.Document) map[string]any {
 	})
 
 	// NOTE: Home is allowed to have missing or invalid details, we will ignore it
-	// Parse type of the lot size
+	// Parse and cast type of the lot size
 	_, ok := detailsMap["Lot Size"]
 	if !ok {
 		detailsMap["Lot Size"] = object.Area{}
@@ -200,9 +201,10 @@ func getDetails(content *goquery.Document) map[string]any {
 	if !ok {
 		detailsMap["HOA Dues"] = float32(0)
 	} else {
+		// Extract the number from it
+		numRegex := regexp.MustCompile(`[\d.]+`)
 		value, err := strconv.ParseFloat(
-			// Extract the number from it
-			regexp.MustCompile(`[\d.]+`).FindString(detailsMap["HOA Dues"].(string)), 32,
+			numRegex.FindString(detailsMap["HOA Dues"].(string)), 32,
 		)
 		if err != nil {
 			detailsMap["HOA Dues"] = float32(0)
@@ -246,17 +248,18 @@ func getAgents(content *goquery.Document) object.HomeContact {
 	var realtors, companies string
 	content.Find(".listing-agent-item").Each(
 		func(i int, s *goquery.Selection) {
-			r := s.Find(".agent-basic-details--heading span")
-			realtors += r.Text() + ", "
+			realtors += s.Find(".agent-basic-details--heading span").Text() + ", "
 
-			c := s.Find(".agent-basic-details--broker span")
-			c.Find(".font-dot").Remove()
-			companies += strings.TrimSpace(c.Not(".font-dot").Text()) + ", "
+			companyContent := s.Find(".agent-basic-details--broker span")
+			companyContent.Find(".font-dot").Remove()
+
+			text := companyContent.Not(".font-dot").Text()
+			companies += strings.TrimSpace(text) + ", "
 		},
 	)
 
-	regex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
-	phoneNumber := regex.FindString(
+	phoneRegex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
+	phoneNumber := phoneRegex.FindString(
 		content.Find(".listingContactSection").Text(),
 	)
 	return object.HomeContact{

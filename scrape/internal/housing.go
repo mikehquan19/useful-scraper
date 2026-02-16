@@ -94,7 +94,7 @@ func getHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
 }
 
 func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
-	var basicInfo, keyDetails, schoolInfo, agentInfo string
+	var basicInfo, keyDetails, description, schoolInfo, agentInfo string
 	fmt.Println("Saving home infos...")
 
 	savedHomes := 0
@@ -126,49 +126,55 @@ func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
 			return err
 		}
 
-		timedoutCtx, timedoutCancel := context.WithTimeout(cdpCtx, 10*time.Second)
-		defer timedoutCancel()
-		err = chromedp.Run(timedoutCtx,
-			chromedp.WaitVisible(".agent-info-section"),
-			chromedp.OuterHTML(".agent-info-section", &agentInfo, chromedp.ByQuery),
-		)
+		err = extractOrSkip(cdpCtx, ".sectionContent .remarks", &description)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				fmt.Println("Agents not available in the website")
-			} else {
-				return err
-			}
+			return err
 		}
-
-		timedoutCtx, timedoutCancel = context.WithTimeout(cdpCtx, 10*time.Second)
-		defer timedoutCancel()
-		err = chromedp.Run(timedoutCtx,
-			chromedp.WaitVisible(".schools-content"),
-			chromedp.OuterHTML(".schools-content", &schoolInfo, chromedp.ByQuery),
-		)
+		err = extractOrSkip(cdpCtx, ".agent-info-section", &agentInfo)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				fmt.Println("Schools not available in the website")
-			} else {
-				return err
-			}
+			return err
+		}
+		err = extractOrSkip(cdpCtx, ".schools-content", &schoolInfo)
+		if err != nil {
+			return err
 		}
 
 		html := fmt.Appendf(nil,
-			"<div>%s%s%s%s</div>",
-			basicInfo, keyDetails, agentInfo, schoolInfo,
+			"<div>%s%s%s%s%s</div>",
+			basicInfo, keyDetails, description, agentInfo, schoolInfo,
 		)
 		err = os.WriteFile(dir, html, 0755)
 		if err != nil {
 			return err
 		}
 		savedHomes += 1
-		if savedHomes == 100 {
-			// Only save 100 houses each city now for testing
+		if savedHomes == 50 {
+			// Only save 50 houses each city now for testing
 			break
 		}
 	}
 
 	fmt.Printf("Saved %d home infos successfully\n", savedHomes)
+	return nil
+}
+
+// extractOrSkip try to extract html from selector or skip if it's hanging
+func extractOrSkip(cdpCtx context.Context, sel string, html *string) error {
+	// Use the timeout context
+	timedoutCtx, timedoutCancel := context.WithTimeout(cdpCtx, 10*time.Second)
+	defer timedoutCancel()
+
+	err := chromedp.Run(timedoutCtx,
+		chromedp.WaitVisible(sel),
+		chromedp.OuterHTML(sel, html, chromedp.ByQuery),
+	)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			fmt.Printf("%s not available in the website\n", sel)
+		} else {
+			return err
+		}
+	}
+
 	return nil
 }
