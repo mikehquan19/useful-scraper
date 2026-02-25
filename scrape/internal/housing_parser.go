@@ -1,7 +1,9 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,8 +21,22 @@ func ParseHouse(city string) error {
 	var homeInfos []object.HomeInfo
 	fmt.Println("Parsing home infos...")
 
+	// Load existing home infos
+	file, err := os.Open("./data/housing.json")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &homeInfos); err != nil {
+		return err
+	}
+
 	dirName := fmt.Sprintf("./data/house/%s", city)
-	err := filepath.WalkDir(dirName, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(dirName, func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() && path == dirName {
 			return nil
 		}
@@ -127,7 +143,7 @@ func getArea(content *goquery.Document) (object.Area, error) {
 	unit := strings.ReplaceAll(content.Find(".sqft-section .statsLabel").Text(), " ", "")
 
 	text := content.Find(".sqft-section .statsValue").Text()
-	// Remove the , from the number to parse
+	// Remove the "," from the number to parse
 	value, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", ""), 32)
 	if err != nil {
 		// This house's listing has invalid area
@@ -254,8 +270,8 @@ func getAgents(content *goquery.Document) object.HomeContact {
 		},
 	)
 
-	phoneNumberRegex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
-	phoneNumber := phoneNumberRegex.FindString(content.Find(".listingContactSection").Text())
+	phoneRegex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
+	phoneNumber := phoneRegex.FindString(content.Find(".listingContactSection").Text())
 	return object.HomeContact{
 		Realtor:     strings.TrimRight(realtors, ", "),
 		Company:     strings.TrimRight(companies, ", "),
