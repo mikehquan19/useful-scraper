@@ -14,31 +14,35 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-func parseHomeData() error {
+// ParseHouse gets housing info in HTML from files and parses them to JSON
+func ParseHouse(city string) error {
 	var homeInfos []object.HomeInfo
 	fmt.Println("Parsing home infos...")
 
-	err := filepath.WalkDir("./data", func(path string, d fs.DirEntry, err error) error {
-		if d.IsDir() || !strings.HasSuffix(path, ".html") {
-			// The entry is a directory or a non-HTML file, we will skip
-			// TODO: Find a stronger way to enforce the HTML-only policy in ./data
+	dirName := fmt.Sprintf("./data/house/%s", city)
+	err := filepath.WalkDir(dirName, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() && path == dirName {
 			return nil
 		}
+		if !d.IsDir() && !strings.HasSuffix(path, ".html") {
+			return fmt.Errorf("%s must have only HTML files", dirName)
+		}
+
 		// Get the HTML doc from the file
-		file, err := os.Open(path)
+		htmlFile, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
-		htmlContent, err := goquery.NewDocumentFromReader(file)
+		defer htmlFile.Close()
+		htmlContent, err := goquery.NewDocumentFromReader(htmlFile)
 		if err != nil {
 			return err
 		}
 
 		// Parse the value from the HTML doc
+		// Skip this house iteration if it contains some invalid information
 		address, err := getAddress(htmlContent)
 		if err != nil {
-			// Skip this house if it contains some invalid information
 			return nil
 		}
 		bedrooms, bathrooms, err := getRooms(htmlContent)
@@ -54,6 +58,7 @@ func parseHomeData() error {
 			return nil
 		}
 		detailsMap := getDetails(htmlContent)
+
 		schools, err := getSchools(htmlContent)
 		if err != nil {
 			return nil
@@ -86,9 +91,7 @@ func parseHomeData() error {
 }
 
 func getAddress(content *goquery.Document) (object.Address, error) {
-	text := content.Find(".full-address").Text()
-
-	splitAddress := strings.Split(text, ", ")
+	splitAddress := strings.Split(content.Find(".full-address").Text(), ", ")
 	if len(splitAddress) < 3 {
 		return object.Address{}, fmt.Errorf("Address missing info, which is non-parsable")
 	}
@@ -103,18 +106,15 @@ func getAddress(content *goquery.Document) (object.Address, error) {
 }
 
 func getRooms(content *goquery.Document) (float32, float32, error) {
-	bedrooms, err := strconv.ParseFloat(
-		content.Find(".beds-section .statsValue").Text(), 32,
-	)
+	text := content.Find(".beds-section .statsValue").Text()
+	bedrooms, err := strconv.ParseFloat(text, 32)
 	if err != nil {
-		// Absolutely ridiculous that some houses have not bedrooms or bathrooms
+		// Houses must have bedrooms and bathrooms
 		return 0, 0, err
 	}
-	text := content.Find(".baths-section .bath-flyout").Text()
-	bathrooms, err := strconv.ParseFloat(
-		// Extract num because it is displayed together with labels
-		strings.Split(text, " ")[0], 32,
-	)
+	text = content.Find(".baths-section .bath-flyout").Text()
+	// Extract num because it is displayed together with labels
+	bathrooms, err := strconv.ParseFloat(strings.Split(text, " ")[0], 32)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -124,9 +124,7 @@ func getRooms(content *goquery.Document) (float32, float32, error) {
 
 func getArea(content *goquery.Document) (object.Area, error) {
 	// Remove any space among the unit
-	unit := strings.ReplaceAll(
-		content.Find(".sqft-section .statsLabel").Text(), " ", "",
-	)
+	unit := strings.ReplaceAll(content.Find(".sqft-section .statsLabel").Text(), " ", "")
 
 	text := content.Find(".sqft-section .statsValue").Text()
 	// Remove the , from the number to parse
@@ -167,7 +165,7 @@ func getDetails(content *goquery.Document) map[string]any {
 	} else {
 		lotSizeParts := strings.Split(detailsMap["Lot Size"].(string), " ")
 
-		// sqft is separated but acres is not
+		// "sqft" is separated as "sq ft" in HTML but "acres" is not
 		unit := lotSizeParts[1]
 		if len(lotSizeParts) > 2 {
 			unit += lotSizeParts[2]
@@ -202,9 +200,9 @@ func getDetails(content *goquery.Document) map[string]any {
 		detailsMap["HOA Dues"] = float32(0)
 	} else {
 		// Extract the number from it
-		numRegex := regexp.MustCompile(`[\d.]+`)
+		numberRegex := regexp.MustCompile(`[\d.]+`)
 		value, err := strconv.ParseFloat(
-			numRegex.FindString(detailsMap["HOA Dues"].(string)), 32,
+			numberRegex.FindString(detailsMap["HOA Dues"].(string)), 32,
 		)
 		if err != nil {
 			detailsMap["HOA Dues"] = float32(0)
@@ -227,9 +225,7 @@ func getSchools(content *goquery.Document) ([]object.School, error) {
 	var parseErr error
 
 	content.Find(".ListItem__content").Each(func(i int, s *goquery.Selection) {
-		schoolDescription := strings.Split(
-			s.Find(".ListItem__description").Text(), " • ",
-		)
+		schoolDescription := strings.Split(s.Find(".ListItem__description").Text(), " • ")
 		if len(schoolDescription) < 3 {
 			parseErr = fmt.Errorf("Description missing information")
 			return
@@ -258,10 +254,8 @@ func getAgents(content *goquery.Document) object.HomeContact {
 		},
 	)
 
-	phoneRegex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
-	phoneNumber := phoneRegex.FindString(
-		content.Find(".listingContactSection").Text(),
-	)
+	phoneNumberRegex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
+	phoneNumber := phoneNumberRegex.FindString(content.Find(".listingContactSection").Text())
 	return object.HomeContact{
 		Realtor:     strings.TrimRight(realtors, ", "),
 		Company:     strings.TrimRight(companies, ", "),

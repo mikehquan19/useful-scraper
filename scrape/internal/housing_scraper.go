@@ -16,45 +16,47 @@ import (
 )
 
 const REDFIN_URL string = "https://www.redfin.com"
-const SCRAPE bool = false
 
-// ScrapeHousing is main function to scrape, parse, and upload the housing info
-func ScrapeHousing(cityHref string) {
-	var err error
-	if SCRAPE {
-		ctx, cancel := getChromedpContext(getHeader)
-		defer cancel()
+// ScrapeHouse scrapes housing info in HTML from Redfin and saves them to files
+func ScrapeHouse(city string) error {
+	cdpCtx, cdpCancel := getChromedpContext(getHeader)
+	defer cdpCancel()
 
-		var homeLinks []string
+	var homeLinks []string
 
-		if homeLinks, err = getHomeLinks(ctx, cityHref); err != nil {
-			panic(fmt.Errorf("Failed to fetch links to all of the homes\n%s", err))
-		}
-
-		err = os.MkdirAll("./data", 0755)
-		if err != nil {
-			panic(fmt.Errorf("Failed to create data directory\n%s", err))
-		}
-
-		if err = saveHomeHTML(ctx, homeLinks); err != nil {
-			panic(fmt.Errorf("Failed to save the home infos to directory\n%s", err))
-		}
-	} else {
-		if err = parseHomeData(); err != nil {
-			panic(fmt.Errorf("Failed to parse the home\n%s", err))
-		}
+	homeLinks, err := getHomeLinks(cdpCtx, city)
+	if err != nil {
+		return fmt.Errorf("Failed to fetch links to all of the homes\n%s", err)
 	}
+
+	// Create the non-existent city directory
+	dirName := fmt.Sprintf("./data/house/%s", city)
+	err = os.MkdirAll(dirName, 0755)
+	if err != nil {
+		return fmt.Errorf("Failed to create city dir\n%s", err)
+	}
+
+	if err = saveHomeHTML(cdpCtx, city, homeLinks); err != nil {
+		return fmt.Errorf("Failed to save the home infos to dir\n%s", err)
+	}
+
+	return nil
 }
 
 // getHomeLinks gets the list of links to the each home
-func getHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
+func getHomeLinks(cdpCtx context.Context, city string) ([]string, error) {
+	cityHref, exists := HREF_MAP[strings.ToLower(city)]
+	if !exists {
+		return nil, fmt.Errorf("The city either doesn't exist or is not supported")
+	}
+
 	var homeLinks []string
 	fmt.Println("Scraping home links...")
 
 	// Get the all the page links
 	var pageNodes []*cdp.Node
 	_, err := chromedp.RunResponse(cdpCtx,
-		chromedp.Navigate(REDFIN_URL+baseHref),
+		chromedp.Navigate(REDFIN_URL+cityHref),
 		chromedp.WaitVisible(".PageNumbers__page"),
 		chromedp.Nodes(".PageNumbers__page", &pageNodes, chromedp.ByQueryAll),
 	)
@@ -93,7 +95,7 @@ func getHomeLinks(cdpCtx context.Context, baseHref string) ([]string, error) {
 	return homeLinks, nil
 }
 
-func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
+func saveHomeHTML(cdpCtx context.Context, city string, homeLinks []string) error {
 	var basicInfo, keyDetails, description, schoolInfo, agentInfo string
 	fmt.Println("Saving home infos...")
 
@@ -101,11 +103,11 @@ func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
 	for _, homeLink := range homeLinks {
 		// Check if the house is already in file strorage
 		filename := path.Base(strings.TrimRight(homeLink, "/"))
-		dir := fmt.Sprintf("./data/%s.html", filename)
+		filepath := fmt.Sprintf("./data/house/%s/%s.html", city, filename)
 
-		_, err := os.Stat(dir)
+		_, err := os.Stat(filepath)
 		if err == nil {
-			fmt.Println(dir + " exists!")
+			fmt.Println(filepath + " exists!")
 			continue
 		} else if !os.IsNotExist(err) {
 			return err
@@ -139,17 +141,17 @@ func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
 			return err
 		}
 
-		html := fmt.Appendf(nil,
+		htmlContent := fmt.Appendf(nil,
 			"<div>%s%s%s%s%s</div>",
 			basicInfo, keyDetails, description, agentInfo, schoolInfo,
 		)
-		err = os.WriteFile(dir, html, 0755)
+		err = os.WriteFile(filepath, htmlContent, 0755)
 		if err != nil {
 			return err
 		}
 		savedHomes += 1
 		if savedHomes == 50 {
-			// Only save 50 houses each city now for testing
+			// Only save 50 houses each city now for development phase
 			break
 		}
 	}
@@ -161,10 +163,10 @@ func saveHomeHTML(cdpCtx context.Context, homeLinks []string) error {
 // extractOrSkip try to extract html from selector or skip if it's hanging
 func extractOrSkip(cdpCtx context.Context, sel string, html *string) error {
 	// Use the timeout context
-	timedoutCtx, timedoutCancel := context.WithTimeout(cdpCtx, 10*time.Second)
-	defer timedoutCancel()
+	timeoutCtx, timeoutCancel := context.WithTimeout(cdpCtx, 10*time.Second)
+	defer timeoutCancel()
 
-	err := chromedp.Run(timedoutCtx,
+	err := chromedp.Run(timeoutCtx,
 		chromedp.WaitVisible(sel),
 		chromedp.OuterHTML(sel, html, chromedp.ByQuery),
 	)
