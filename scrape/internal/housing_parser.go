@@ -95,27 +95,26 @@ func ParseHouse(city string) error {
 			HOADues:      detailsMap["HOA Dues"].(float32),
 			Parking:      detailsMap["Parking"].(string),
 			Schools:      schools,
-			Contact:      getAgents(htmlContent),
 		})
 
 		return nil
 	})
 
 	fmt.Printf("Parsed %d home infos completely!\n", len(homeInfos))
-	writeToFile(homeInfos, "./data/housing.json")
+	err = writeToFile(homeInfos, "./data/housing.json")
 	return err
 }
 
 func getAddress(content *goquery.Document) (object.Address, error) {
-	splitAddress := strings.Split(content.Find(".full-address").Text(), ", ")
-	if len(splitAddress) < 3 {
+	addrParts := strings.Split(content.Find(".full-address").Text(), ", ")
+	if len(addrParts) < 3 {
 		return object.Address{}, fmt.Errorf("Address missing info, which is non-parsable")
 	}
-	stateAndZip := strings.Split(splitAddress[2], " ")
+	stateAndZip := strings.Split(addrParts[2], " ")
 
 	return object.Address{
-		Street:  splitAddress[0],
-		City:    splitAddress[1],
+		Street:  addrParts[0],
+		City:    addrParts[1],
 		State:   stateAndZip[0],
 		Zipcode: stateAndZip[1],
 	}, nil
@@ -140,9 +139,10 @@ func getRooms(content *goquery.Document) (float32, float32, error) {
 
 func getArea(content *goquery.Document) (object.Area, error) {
 	// Remove any space among the unit
-	unit := strings.ReplaceAll(content.Find(".sqft-section .statsLabel").Text(), " ", "")
+	text := content.Find(".sqft-section .statsLabel").Text()
+	unit := strings.ReplaceAll(text, " ", "")
 
-	text := content.Find(".sqft-section .statsValue").Text()
+	text = content.Find(".sqft-section .statsValue").Text()
 	// Remove the "," from the number to parse
 	value, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", ""), 32)
 	if err != nil {
@@ -157,8 +157,8 @@ func getArea(content *goquery.Document) (object.Area, error) {
 }
 
 func getPrice(content *goquery.Document) (float32, error) {
-	text := content.Find(".price").Text()[1:]
-	price, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", ""), 32)
+	text := content.Find(".price").Text()
+	price, err := strconv.ParseFloat(strings.ReplaceAll(text[1:], ",", ""), 32)
 	if err != nil {
 		// This house's listing has invalid price
 		return 0, err
@@ -215,11 +215,10 @@ func getDetails(content *goquery.Document) map[string]any {
 	if !ok {
 		detailsMap["HOA Dues"] = float32(0)
 	} else {
-		// Extract the number from it
+		// Extract the float32 number from it
 		numberRegex := regexp.MustCompile(`[\d.]+`)
-		value, err := strconv.ParseFloat(
-			numberRegex.FindString(detailsMap["HOA Dues"].(string)), 32,
-		)
+		text := numberRegex.FindString(detailsMap["HOA Dues"].(string))
+		value, err := strconv.ParseFloat(text, 32)
 		if err != nil {
 			detailsMap["HOA Dues"] = float32(0)
 		} else {
@@ -238,12 +237,12 @@ func getDetails(content *goquery.Document) map[string]any {
 
 func getSchools(content *goquery.Document) ([]object.School, error) {
 	var nearbySchools []object.School
-	var parseErr error
+	var err error
 
 	content.Find(".ListItem__content").Each(func(i int, s *goquery.Selection) {
 		schoolDescription := strings.Split(s.Find(".ListItem__description").Text(), " • ")
 		if len(schoolDescription) < 3 {
-			parseErr = fmt.Errorf("Description missing information")
+			err = fmt.Errorf("Description missing information")
 			return
 		}
 		nearbySchools = append(nearbySchools, object.School{
@@ -253,28 +252,5 @@ func getSchools(content *goquery.Document) ([]object.School, error) {
 		})
 	})
 
-	return nearbySchools, parseErr
-}
-
-func getAgents(content *goquery.Document) object.HomeContact {
-	var realtors, companies string
-	content.Find(".listing-agent-item").Each(
-		func(i int, s *goquery.Selection) {
-			realtors += s.Find(".agent-basic-details--heading span").Text() + ", "
-
-			companyContent := s.Find(".agent-basic-details--broker span")
-			companyContent.Find(".font-dot").Remove()
-
-			text := companyContent.Not(".font-dot").Text()
-			companies += strings.TrimSpace(text) + ", "
-		},
-	)
-
-	phoneRegex := regexp.MustCompile(`\b\d{3}-\d{3}-\d{4}\b`)
-	phoneNumber := phoneRegex.FindString(content.Find(".listingContactSection").Text())
-	return object.HomeContact{
-		Realtor:     strings.TrimRight(realtors, ", "),
-		Company:     strings.TrimRight(companies, ", "),
-		PhoneNumber: phoneNumber,
-	}
+	return nearbySchools, err
 }

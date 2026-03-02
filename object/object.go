@@ -22,12 +22,6 @@ type Address struct {
 	Zipcode string `json:"zip_code" bson:"zip_code"`
 }
 
-type HomeContact struct {
-	Realtor     string `json:"realtor" bson:"realtor"`
-	Company     string `json:"company" bson:"company"`
-	PhoneNumber string `json:"phone_number" bson:"phone_number"`
-}
-
 type School struct {
 	Name     string `json:"name" bson:"name"`
 	Type     string `json:"type" bson:"type"`
@@ -49,7 +43,8 @@ type HomeInfo struct {
 	HOADues      float32            `json:"hoa_dues" bson:"hoa_dues"`
 	Parking      string             `json:"parking" bson:"parking"`
 	Schools      []School           `json:"schools" bson:"schools"`
-	Contact      HomeContact        `json:"contact" bson:"contact"`
+	Lon          float32            `json:"lon" bson:"lon"`
+	Lat          float32            `json:"lat" bson:"lat"`
 }
 
 type FuelEconomy struct {

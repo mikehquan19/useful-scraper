@@ -36,6 +36,12 @@ func Housing(city string, parse bool, upload bool) {
 	}
 
 	// Tool is in uploading mode
+	if upload {
+		if err = internal.UploadHouse(); err != nil {
+			panic(fmt.Errorf("Failed to upload houses\n%s", err))
+		}
+		return
+	}
 
 	// Tool is in scraping model by default
 	if err = internal.ScrapeHouse(city); err != nil {

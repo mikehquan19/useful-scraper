@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -75,18 +74,19 @@ func getHeader() map[string]any {
 }
 
 // Write the list of objects to file
-func writeToFile[T any](objectList []T, outDir string) {
+func writeToFile[T any](objectList []T, outDir string) error {
 	// Convert the list to the json
 	jsonData, err := json.Marshal(objectList)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
 
 	// Write to JSON file,
 	err = os.WriteFile(outDir, jsonData, 0644)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
+	return nil
 }
 
 // Convert string to float32

@@ -16,6 +16,7 @@ import (
 )
 
 const REDFIN_URL string = "https://www.redfin.com"
+const MAX_SCRAPED_HOUSES int = 50
 
 // ScrapeHouse scrapes housing info in HTML from Redfin and saves them to files
 func ScrapeHouse(city string) error {
@@ -68,7 +69,7 @@ func getHomeLinks(cdpCtx context.Context, city string) ([]string, error) {
 	for _, pageNode := range pageNodes {
 		pageHref, hrefExists := pageNode.Attribute("href")
 		if !hrefExists {
-			return nil, errors.New("can't get page links")
+			return nil, fmt.Errorf("Can't get links page")
 		}
 
 		var homeNodes []*cdp.Node
@@ -97,7 +98,7 @@ func getHomeLinks(cdpCtx context.Context, city string) ([]string, error) {
 
 func saveHomeHTML(cdpCtx context.Context, city string, homeLinks []string) error {
 	var basicInfo, keyDetails, description, schoolInfo, agentInfo string
-	fmt.Println("Saving home infos...")
+	fmt.Printf("Saving home infos of %s...\n", city)
 
 	savedHomes := 0
 	for _, homeLink := range homeLinks {
@@ -132,10 +133,6 @@ func saveHomeHTML(cdpCtx context.Context, city string, homeLinks []string) error
 		if err != nil {
 			return err
 		}
-		err = extractOrSkip(cdpCtx, ".agent-info-section", &agentInfo)
-		if err != nil {
-			return err
-		}
 		err = extractOrSkip(cdpCtx, ".schools-content", &schoolInfo)
 		if err != nil {
 			return err
@@ -150,13 +147,13 @@ func saveHomeHTML(cdpCtx context.Context, city string, homeLinks []string) error
 			return err
 		}
 		savedHomes += 1
-		if savedHomes == 50 {
-			// Only save 50 houses each city now for development phase
+		if savedHomes == MAX_SCRAPED_HOUSES {
+			// Only save certain number of houses each city now for development phase
 			break
 		}
 	}
 
-	fmt.Printf("Saved %d home infos successfully\n", savedHomes)
+	fmt.Printf("Saved %d home infos of %s successfully\n", savedHomes, city)
 	return nil
 }
 
@@ -166,13 +163,18 @@ func extractOrSkip(cdpCtx context.Context, sel string, html *string) error {
 	timeoutCtx, timeoutCancel := context.WithTimeout(cdpCtx, 10*time.Second)
 	defer timeoutCancel()
 
+	tagToName := map[string]string{
+		".sectionContent .remarks": "description",
+		".schools-content":         "schools",
+	}
+
 	err := chromedp.Run(timeoutCtx,
 		chromedp.WaitVisible(sel),
 		chromedp.OuterHTML(sel, html, chromedp.ByQuery),
 	)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			fmt.Printf("%s not available in the website\n", sel)
+			fmt.Printf("%s not available in the website\n", tagToName[sel])
 		} else {
 			return err
 		}

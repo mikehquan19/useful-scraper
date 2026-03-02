@@ -35,7 +35,9 @@ func ScrapeCars(cityId string) {
 		carInfos = append(carInfos, scrapedCar)
 	}
 
-	writeToFile(carInfos, "car_garland")
+	if err := writeToFile(carInfos, "car_garland"); err != nil {
+		panic(err)
+	}
 }
 
 // Get all the car links of the city
