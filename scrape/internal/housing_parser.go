@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +17,22 @@ import (
 	"github.com/mikehquan19/useful-scraper/object"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+const MAPBOX_URL = "https://api.mapbox.com/search/geocode/v6/forward?limit=1"
+
+type Geometry struct {
+	Coordinates []float32 `json:"coordinates"`
+}
+
+type Feature struct {
+	Geometry Geometry `json:"geometry"`
+}
+
+type MapboxResponse struct {
+	Type        string    `json:"type"`
+	Features    []Feature `json:"features"`
+	Attribution string    `json:"attribution"`
+}
 
 // ParseHouse gets housing info in HTML from files and parses them to JSON
 func ParseHouse(city string) error {
@@ -56,11 +74,12 @@ func ParseHouse(city string) error {
 		}
 
 		// Parse the value from the HTML doc
-		// Skip this house iteration if it contains some invalid information
 		address, err := getAddress(htmlContent)
 		if err != nil {
+			// Skip this house iteration if it contains some invalid information
 			return nil
 		}
+
 		bedrooms, bathrooms, err := getRooms(htmlContent)
 		if err != nil {
 			return nil
@@ -76,6 +95,10 @@ func ParseHouse(city string) error {
 		detailsMap := getDetails(htmlContent)
 
 		schools, err := getSchools(htmlContent)
+		if err != nil {
+			return nil
+		}
+		lon, lat, err := getCoordinates(htmlContent)
 		if err != nil {
 			return nil
 		}
@@ -95,6 +118,8 @@ func ParseHouse(city string) error {
 			HOADues:      detailsMap["HOA Dues"].(float32),
 			Parking:      detailsMap["Parking"].(string),
 			Schools:      schools,
+			Lon:          lon,
+			Lat:          lat,
 		})
 
 		return nil
@@ -140,7 +165,7 @@ func getRooms(content *goquery.Document) (float32, float32, error) {
 func getArea(content *goquery.Document) (object.Area, error) {
 	// Remove any space among the unit
 	text := content.Find(".sqft-section .statsLabel").Text()
-	unit := strings.ReplaceAll(text, " ", "")
+	unit := strings.ReplaceAll(content.Find(".sqft-section .statsLabel").Text(), " ", "")
 
 	text = content.Find(".sqft-section .statsValue").Text()
 	// Remove the "," from the number to parse
@@ -204,7 +229,7 @@ func getDetails(content *goquery.Document) map[string]any {
 	} else {
 		value, err := strconv.ParseFloat(detailsMap["Price/Sq.Ft."].(string)[1:], 32)
 		if err != nil {
-			detailsMap["Price/Sq.Ft."] = float32(0)
+			detailsMap["Price/Sq.Ft."] = float32(0.0)
 		} else {
 			detailsMap["Price/Sq.Ft."] = float32(value)
 		}
@@ -253,4 +278,36 @@ func getSchools(content *goquery.Document) ([]object.School, error) {
 	})
 
 	return nearbySchools, err
+}
+
+// TODO: Use BATCHING CALLING
+// Get coordinates from Mapbox
+func getCoordinates(content *goquery.Document) (float32, float32, error) {
+	encoded := url.QueryEscape(content.Find(".full-address").Text())
+	token, exists := os.LookupEnv("MAPBOX_ACCESS_TOKEN")
+	if !exists {
+		return 0, 0, fmt.Errorf("Mapbox access token not available.")
+	}
+
+	url := fmt.Sprintf("%s&q=%s&access_token=%s", MAPBOX_URL, encoded, token)
+	response, err := http.Get(url)
+	if err != nil {
+		return 0, 0, err
+	}
+	if response != nil && response.StatusCode != 200 {
+		return 0, 0, fmt.Errorf("ERROR: Non-200 status is returned, %s", response.Status)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var results MapboxResponse
+	if err = json.Unmarshal(body, &results); err != nil {
+		return 0, 0, err
+	}
+	coordinates := results.Features[0].Geometry.Coordinates
+
+	return coordinates[0], coordinates[1], nil
 }

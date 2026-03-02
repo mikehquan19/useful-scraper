@@ -4,10 +4,14 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/joho/godotenv"
 	"github.com/mikehquan19/useful-scraper/scrape/internal"
 )
 
 func main() {
+	// Load the environment
+	godotenv.Load("../.env")
+
 	objectPtr := flag.String("object", "house", "Object to scrape (house, car, apartments)")
 	cityPtr := flag.String("city", "richardson", "City of the scraped objects")
 	uploadPtr := flag.Bool("upload", false, "Put the tools in uploading mode")
