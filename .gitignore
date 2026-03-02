@@ -1,2 +1,4 @@
 scrape/data
 scrape/main
+
+.env
