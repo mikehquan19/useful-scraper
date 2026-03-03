@@ -31,6 +31,8 @@ type School struct {
 type HomeInfo struct {
 	Id           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	Address      Address            `json:"address" bson:"address"`
+	Lon          float32            `json:"lon" bson:"lon"`
+	Lat          float32            `json:"lat" bson:"lat"`
 	Description  string             `json:"description" bson:"description"`
 	Bedrooms     float32            `json:"bedrooms" bson:"bedrooms"`
 	Bathrooms    float32            `json:"bathrooms" bson:"bathrooms"`
@@ -43,8 +45,6 @@ type HomeInfo struct {
 	HOADues      float32            `json:"hoa_dues" bson:"hoa_dues"`
 	Parking      string             `json:"parking" bson:"parking"`
 	Schools      []School           `json:"schools" bson:"schools"`
-	Lon          float32            `json:"lon" bson:"lon"`
-	Lat          float32            `json:"lat" bson:"lat"`
 }
 
 type FuelEconomy struct {

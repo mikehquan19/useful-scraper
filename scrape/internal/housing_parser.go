@@ -1,12 +1,12 @@
 package internal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,44 +18,37 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-const MAPBOX_URL = "https://api.mapbox.com/search/geocode/v6/forward?limit=1"
+const MAPBOX_URL = "https://api.mapbox.com/search/geocode/v6/batch"
 
+var NUMBER_REGEX = regexp.MustCompile(`[\d.]+`)
+
+type MapboxPayload struct {
+	Types []string `json:"type"`
+	Q     string   `json:"q"`
+	Limit int      `json:"limit"`
+}
 type Geometry struct {
 	Coordinates []float32 `json:"coordinates"`
 }
-
 type Feature struct {
 	Geometry Geometry `json:"geometry"`
 }
-
-type MapboxResponse struct {
-	Type        string    `json:"type"`
-	Features    []Feature `json:"features"`
-	Attribution string    `json:"attribution"`
+type BatchGeocodingResponse struct {
+	Batch []struct {
+		Type        string    `json:"type"`
+		Features    []Feature `json:"features"`
+		Attribution string    `json:"attribution"`
+	} `json:"batch"`
 }
 
 // ParseHouse gets housing info in HTML from files and parses them to JSON
-func ParseHouse(city string) error {
-	var homeInfos []object.HomeInfo
+func ParseHouse() error {
+	var homeInfos []*object.HomeInfo
 	fmt.Println("Parsing home infos...")
 
-	// Load existing home infos
-	file, err := os.Open("./data/housing.json")
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(data, &homeInfos); err != nil {
-		return err
-	}
-
-	dirName := fmt.Sprintf("./data/house/%s", city)
-	err = filepath.WalkDir(dirName, func(path string, d fs.DirEntry, err error) error {
-		if d.IsDir() && path == dirName {
+	dirName := "./data/house"
+	err := filepath.WalkDir(dirName, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
 			return nil
 		}
 		if !d.IsDir() && !strings.HasSuffix(path, ".html") {
@@ -79,7 +72,6 @@ func ParseHouse(city string) error {
 			// Skip this house iteration if it contains some invalid information
 			return nil
 		}
-
 		bedrooms, bathrooms, err := getRooms(htmlContent)
 		if err != nil {
 			return nil
@@ -92,18 +84,13 @@ func ParseHouse(city string) error {
 		if err != nil {
 			return nil
 		}
-		detailsMap := getDetails(htmlContent)
-
 		schools, err := getSchools(htmlContent)
 		if err != nil {
 			return nil
 		}
-		lon, lat, err := getCoordinates(htmlContent)
-		if err != nil {
-			return nil
-		}
 
-		homeInfos = append(homeInfos, object.HomeInfo{
+		detailsMap := getDetails(htmlContent)
+		homeInfos = append(homeInfos, &object.HomeInfo{
 			Id:           primitive.NewObjectID(),
 			Address:      address,
 			Description:  htmlContent.Find(".remarks").Text(),
@@ -118,12 +105,15 @@ func ParseHouse(city string) error {
 			HOADues:      detailsMap["HOA Dues"].(float32),
 			Parking:      detailsMap["Parking"].(string),
 			Schools:      schools,
-			Lon:          lon,
-			Lat:          lat,
 		})
 
 		return nil
 	})
+
+	// Get the coordinates for the parsed houses
+	if err = getCoordinates(homeInfos); err != nil {
+		return err
+	}
 
 	fmt.Printf("Parsed %d home infos completely!\n", len(homeInfos))
 	err = writeToFile(homeInfos, "./data/housing.json")
@@ -280,34 +270,51 @@ func getSchools(content *goquery.Document) ([]object.School, error) {
 	return nearbySchools, err
 }
 
-// TODO: Use BATCHING CALLING
-// Get coordinates from Mapbox
-func getCoordinates(content *goquery.Document) (float32, float32, error) {
-	encoded := url.QueryEscape(content.Find(".full-address").Text())
-	token, exists := os.LookupEnv("MAPBOX_ACCESS_TOKEN")
-	if !exists {
-		return 0, 0, fmt.Errorf("Mapbox access token not available.")
+// Get coordinates from Mapbox's geocoding service
+func getCoordinates(homeInfos []*object.HomeInfo) error {
+	var payload []MapboxPayload
+	for _, h := range homeInfos {
+		addrText := fmt.Sprintf(
+			"%s, %s, %s %s",
+			h.Address.Street, h.Address.City, h.Address.State, h.Address.Zipcode,
+		)
+		payload = append(payload, MapboxPayload{
+			Types: []string{"address"},
+			Q:     addrText,
+			Limit: 1,
+		})
+	}
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	accessToken, ok := os.LookupEnv("MAPBOX_ACCESS_TOKEN")
+	if !ok {
+		return fmt.Errorf("Mapbox access token not available.")
 	}
 
-	url := fmt.Sprintf("%s&q=%s&access_token=%s", MAPBOX_URL, encoded, token)
-	response, err := http.Get(url)
+	url := fmt.Sprintf("%s?access_token=%s", MAPBOX_URL, accessToken)
+	response, err := http.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
 	if response != nil && response.StatusCode != 200 {
-		return 0, 0, fmt.Errorf("ERROR: Non-200 status is returned, %s", response.Status)
+		return fmt.Errorf("ERROR: Non-200 status is returned, %s", response.Status)
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
 
-	var results MapboxResponse
+	var results BatchGeocodingResponse
 	if err = json.Unmarshal(body, &results); err != nil {
-		return 0, 0, err
+		return err
 	}
-	coordinates := results.Features[0].Geometry.Coordinates
-
-	return coordinates[0], coordinates[1], nil
+	for i, homeInfo := range homeInfos {
+		coordinates := results.Batch[i].Features[0].Geometry.Coordinates
+		homeInfo.Lon = coordinates[0]
+		homeInfo.Lat = coordinates[1]
+	}
+	return nil
 }

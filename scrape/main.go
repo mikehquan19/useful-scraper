@@ -33,7 +33,7 @@ func Housing(city string, parse bool, upload bool) {
 	var err error
 	// Tool is in parsing mode
 	if parse {
-		if err = internal.ParseHouse(city); err != nil {
+		if err = internal.ParseHouse(); err != nil {
 			panic(fmt.Errorf("Failed to parse houses\n%s", err))
 		}
 		return
